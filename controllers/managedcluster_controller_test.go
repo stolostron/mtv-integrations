@@ -46,7 +46,15 @@ func TestReconcile_AddsFinalizer(t *testing.T) {
 		reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-cluster"}})
 	assert.NoError(t, err)
 
-	updated := &clusterv1.ManagedCluster{}
+	var updated = &clusterv1.ManagedCluster{}
+	_ = k8sClient.Get(context.TODO(), types.NamespacedName{Name: "test-cluster"}, updated)
+	assert.NotContains(t, updated.Finalizers, ManagedClusterFinalizer)
+
+	managedCluster.SetLabels(map[string]string{LabelCNVOperatorInstall: "true"})
+	_ = k8sClient.Update(context.TODO(), managedCluster)
+	_, err = reconciler.Reconcile(context.TODO(),
+		reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-cluster"}})
+	assert.NoError(t, err)
 	_ = k8sClient.Get(context.TODO(), types.NamespacedName{Name: "test-cluster"}, updated)
 	assert.Contains(t, updated.Finalizers, ManagedClusterFinalizer)
 }
