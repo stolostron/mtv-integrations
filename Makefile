@@ -1,5 +1,20 @@
+# VERSION defines the project version for the bundle.
+# Update this value when you upgrade the version of your project.
+# To re-generate a bundle for another specific version without changing the standard setup, you can:
+# - use the VERSION as arg of the bundle target (e.g make bundle VERSION=0.0.2)
+# - use environment variables to overwrite this value (e.g export VERSION=0.0.2)
+VERSION ?= 0.0.1
+
+TARGETOS ?= linux
+TARGETARCH ?= amd64
+
+# REGISTRY_BASE
+# defines the container registry and organization for the bundle and operator container images.
+REGISTRY_BASE ?= quay.io/acmd
+IMG_NAME ?= $(REGISTRY_BASE)/mtv-integrations
+
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= $(IMG_NAME):$(VERSION)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -12,12 +27,18 @@ endif
 # Be aware that the target commands are only tested with Docker which is
 # scaffolded by default. However, you might want to replace it to use other
 # tools. (i.e. podman)
-CONTAINER_TOOL ?= docker
+CONTAINER_TOOL ?= $(shell which podman 2>/dev/null || which docker 2>/dev/null)
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
+
+# GO_ENV_PREFIX is used to set the environment variables for the go commands.
+GO_ENV_PREFIX ?= CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH}
+
+# ID is used to set the image ID for the docker push command.
+ID ?= $($(CONTAINER_TOOL) images --format '{{.ID}}' ${IMG_NAME})
 
 .PHONY: all
 all: build
@@ -53,15 +74,6 @@ vet: ## Run go vet against code.
 test: fmt vet setup-envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
-# TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
-# The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
-# Prometheus and CertManager are installed by default; skip with:
-# - PROMETHEUS_INSTALL_SKIP=true
-# - CERT_MANAGER_INSTALL_SKIP=true
-.PHONY: test-e2e
-test-e2e: fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	cd test/e2e && go test -timeout 360s -run TestE2E github.com/stolostron/mtv-integrations/test/e2e -v
-
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run
@@ -78,22 +90,26 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 .PHONY: build
 build:  fmt vet ## Build manager binary.
-	go build -o bin/manager cmd/main.go
+	$(GO_ENV_PREFIX) go build -a -o bin/manager cmd/main.go
+
 
 .PHONY: run
 run: fmt vet ## Run a controller from your host.
-	go run ./cmd/main.go
+	$(GO_ENV_PREFIX) go run ./cmd/main.go
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
+	$(GO_ENV_PREFIX) go mod vendor
+	$(GO_ENV_PREFIX) go mod tidy
 	$(CONTAINER_TOOL) build -t ${IMG} .
+	rm -rf vendor
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
-	$(CONTAINER_TOOL) push ${IMG}
+	$(CONTAINER_TOOL) push ${ID} ${IMG}
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
@@ -125,7 +141,7 @@ ifndef ignore-not-found
 endif
 
 .PHONY: deploy
-deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+deploy: kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 
@@ -143,7 +159,6 @@ $(LOCALBIN):
 ## Tool Binaries
 KUBECTL ?= kubectl
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
-CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 
@@ -160,11 +175,6 @@ GOLANGCI_LINT_VERSION ?= v1.64.3
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
 $(KUSTOMIZE): $(LOCALBIN)
 	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5,$(KUSTOMIZE_VERSION))
-
-.PHONY: controller-gen
-controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
-$(CONTROLLER_GEN): $(LOCALBIN)
-	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
 
 .PHONY: setup-envtest
 setup-envtest: envtest ## Download the binaries required for ENVTEST in the local bin directory.

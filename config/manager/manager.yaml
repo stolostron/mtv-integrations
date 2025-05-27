@@ -1,33 +1,25 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  labels:
-    control-plane: mtv-controller-manager
-    app.kubernetes.io/name: mtv-integrations
-    app.kubernetes.io/managed-by: kustomize
-  name: system
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mtv-controller-manager
-  namespace: system
+  name: controller
+  namespace: open-cluster-management
   labels:
-    control-plane: mtv-controller-manager
+    control-plane: mtv-controller
     app.kubernetes.io/name: mtv-integrations
     app.kubernetes.io/managed-by: kustomize
 spec:
   selector:
     matchLabels:
-      control-plane: mtv-controller-manager
+      control-plane: mtv-controller
       app.kubernetes.io/name: mtv-integrations
   replicas: 1
   template:
     metadata:
       annotations:
-        kubectl.kubernetes.io/default-container: manager
+        kubectl.kubernetes.io/default-container: controller
       labels:
-        control-plane: mtv-controller-manager
+        control-plane: mtv-controller
         app.kubernetes.io/name: mtv-integrations
     spec:
       # TODO(user): Uncomment the following code to configure the nodeAffinity expression
@@ -64,7 +56,8 @@ spec:
           - --leader-elect
           - --health-probe-bind-address=:8081
         image: controller:latest
-        name: manager
+        imagePullPolicy: Always
+        name: controller
         ports: []
         securityContext:
           allowPrivilegeEscalation: false
@@ -86,13 +79,11 @@ spec:
         # TODO(user): Configure the resources accordingly based on the project requirements.
         # More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
         resources:
-          limits:
-            cpu: 500m
-            memory: 128Mi
+          # TODO(jpacker): Adjust the requests, once you see this running in the environment.
           requests:
             cpu: 10m
             memory: 64Mi
         volumeMounts: []
       volumes: []
-      serviceAccountName: mtv-controller-manager
+      serviceAccountName: mtv-integrations-manager
       terminationGracePeriodSeconds: 10

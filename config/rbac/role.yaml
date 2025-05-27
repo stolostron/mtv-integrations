@@ -6,6 +6,18 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: manager-role
 rules:
+- apiGroups: ["cluster.open-cluster-management.io"]
+  resources: ["managedclusters"]
+  verbs: ["get", "list", "watch", "patch", "update"]
+- apiGroups: ["authentication.open-cluster-management.io"]
+  resources: ["managedserviceaccounts"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["rbac.open-cluster-management.io"]
+  resources: ["clusterpermissions"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 - apiGroups: [""]
-  resources: ["pods"]
-  verbs: ["get", "list", "watch"]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["forklift.konveyor.io"]
+  resources: ["providers"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

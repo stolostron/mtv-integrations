@@ -17,7 +17,7 @@ URL and CA certificates for use by the Migration Toolkit for Virtualization prov
 
 ## Build, Run, Deploy, and Undeploy
 
-### Build
+### Build locally `./bin/manager`
 
 ```sh
 make build
@@ -41,3 +41,17 @@ make deploy
 make undeploy
 ```
 
+### Build container image
+
+* Set the environemnt variable `REGISTRY_BASE=quay.io/amd`, to a value that represents you destination repository.
+* Make sure you are authenticated with the repository.
+
+```sh
+make docker-build
+```
+
+### Push container image
+
+```sh
+make docker-push
+```

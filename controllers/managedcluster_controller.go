@@ -86,7 +86,12 @@ func (r *ManagedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			managedServiceAccount.Spec.Rotation.Enabled = true
 			managedServiceAccount.Spec.Rotation.Validity = metav1.Duration{
 				Duration: time.Minute * 60}
-			if err := controllerutil.SetControllerReference(managedCluster, managedServiceAccount, r.Scheme); err != nil {
+			if err := controllerutil.SetControllerReference(
+				managedCluster,
+				managedServiceAccount,
+				r.Scheme,
+				controllerutil.WithBlockOwnerDeletion(false)); err != nil {
+
 				log.Error(err, "Failed to set ManagedServiceAccount owner reference to ManagedCluster")
 				return ctrl.Result{}, err
 			}
