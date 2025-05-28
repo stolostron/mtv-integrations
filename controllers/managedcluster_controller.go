@@ -144,11 +144,14 @@ func (r *ManagedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      managedClusterMTV,
 					Namespace: MTVIntegrationsNamespace,
+					Labels: map[string]string{
+						"createdForProviderType": "openshift",
+						"createdForResourceType": "providers",
+					},
 				},
 				Data: map[string][]byte{
 					"insecureSkipVerify": []byte("false"),
 					"url":                []byte(managedCluster.Spec.ManagedClusterClientConfigs[0].URL),
-					"token":              ogSecret.Data["token"],
 				},
 			}
 			// Copy the data from the ManagedServiceAccount secret to the Provider secret
@@ -159,12 +162,14 @@ func (r *ManagedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 					return ctrl.Result{}, err
 				}
 			}
-			if !bytes.Equal(providerSecret.Data["cacert"], ogSecret.Data["ca.crt"]) {
+			if !bytes.Equal(providerSecret.Data["cacert"], ogSecret.Data["ca.crt"]) ||
+				!bytes.Equal(providerSecret.Data["token"], ogSecret.Data["token"]) {
 				log.Info("Adding provider details to secret", "secret", providerSecret.Name,
 					"namespace", MTVIntegrationsNamespace)
 
 				if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, providerSecret, func() error {
 					providerSecret.Data["cacert"] = ogSecret.Data["ca.crt"]
+					providerSecret.Data["token"] = ogSecret.Data["token"]
 					return nil
 				}); err != nil {
 					log.Error(err, "Failed to create or patch", "secret", providerSecret.Name,
