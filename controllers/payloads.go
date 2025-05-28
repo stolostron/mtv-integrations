@@ -9,6 +9,7 @@ import (
 
 const ManagedClusterFinalizer = "mtv-integrations.open-cluster-management.io/resource-cleanup"
 const LabelCNVOperatorInstall = "acm/cnv-operator-install"
+const MTVIntegrationsNamespace = "mtv-integrations"
 
 var TokenWaitDuration = 4 * time.Second
 
@@ -18,6 +19,7 @@ var ManagedServiceAccountsGVR = generateGVR(
 	"v1beta1",
 	"managedserviceaccounts")
 var ProvidersGVR = generateGVR("forklift.konveyor.io", "v1beta1", "providers")
+var ProviderSecretGVR = generateGVR("", "v1", "secrets")
 
 func providerPayload(managedCluster *clusterv1.ManagedCluster) map[string]interface{} {
 	managedClusterMTV := managedCluster.Name + "-mtv"
@@ -26,14 +28,14 @@ func providerPayload(managedCluster *clusterv1.ManagedCluster) map[string]interf
 		"kind":       "Provider",
 		"metadata": map[string]interface{}{
 			"name":      managedClusterMTV,
-			"namespace": managedCluster.Name,
+			"namespace": MTVIntegrationsNamespace,
 		},
 		"spec": map[string]interface{}{
 			"type": "openshift",
 			"url":  managedCluster.Spec.ManagedClusterClientConfigs[0].URL,
 			"secret": map[string]interface{}{
 				"name":      managedClusterMTV,
-				"namespace": managedCluster.Name,
+				"namespace": MTVIntegrationsNamespace,
 			},
 		},
 	}

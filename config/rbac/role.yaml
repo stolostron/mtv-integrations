@@ -16,7 +16,7 @@ rules:
   resources: ["clusterpermissions"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 - apiGroups: [""]
-  resources: ["secrets"]
+  resources: ["secrets", "namespaces"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 - apiGroups: ["forklift.konveyor.io"]
   resources: ["providers"]

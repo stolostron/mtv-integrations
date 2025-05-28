@@ -26,6 +26,7 @@ func TestReconcile_AddsFinalizer(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = clusterv1.AddToScheme(scheme)
 	_ = auth.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
 
 	managedCluster := &clusterv1.ManagedCluster{
 		ObjectMeta: metav1.ObjectMeta{
@@ -231,12 +232,16 @@ func TestReconcile_CreatesProvider(t *testing.T) {
 		reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-cluster"}})
 	assert.NoError(t, err)
 	// Check that the Provider was created in the fake dynamic client
-	u, err := dynClient.Resource(ProvidersGVR).Namespace("test-cluster").Get(context.TODO(),
+	u, err := dynClient.Resource(ProvidersGVR).Namespace("mtv-integrations").Get(context.TODO(),
 		"test-cluster-mtv", metav1.GetOptions{})
 	assert.NoError(t, err)
 	assert.NotNil(t, u)
 	assert.Equal(t, "test-cluster-mtv", u.GetName())
-	assert.Equal(t, "test-cluster", u.GetNamespace())
+	assert.Equal(t, "mtv-integrations", u.GetNamespace())
+	// Check that the Provider secret was created in the fake dynamic client
+	err = k8sClient.Get(context.TODO(),
+		types.NamespacedName{Name: "test-cluster-mtv", Namespace: "mtv-integrations"}, &corev1.Secret{})
+	assert.NoError(t, err)
 }
 func TestCleanupManagedClusterResources_RemovesFinalizer(t *testing.T) {
 	scheme := runtime.NewScheme()
