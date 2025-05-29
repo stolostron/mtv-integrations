@@ -1,0 +1,7 @@
+apiVersion: clusterview.open-cluster-management.io/v1
+kind: Project
+metadata:
+  labels:
+    cluster: managed1
+    project: all_projects
+  name: 7a42b467-3107-5e88-bd05-ab0e3fc82efa

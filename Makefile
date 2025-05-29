@@ -10,7 +10,7 @@ TARGETARCH ?= amd64
 
 # REGISTRY_BASE
 # defines the container registry and organization for the bundle and operator container images.
-REGISTRY_BASE ?= quay.io/acmd
+REGISTRY_BASE ?= quay.io/stolostron
 IMG_NAME ?= $(REGISTRY_BASE)/mtv-integrations
 
 # Image URL to use all building/pushing image targets
@@ -209,3 +209,67 @@ mv $(1) $(1)-$(3) ;\
 } ;\
 ln -sf $(1)-$(3) $(1)
 endef
+
+############################################################
+# Webhook test
+############################################################
+KIND_NAME ?= kind-cluster
+KIND_VERSION ?= v1.31.0
+KIND_CLUSTER_NAME = kind-$(KIND_NAME)
+USER_TEST ?= test-user
+GINKGO = $(LOCALBIN)/ginkgo
+CONTEXT_NAME = test-context
+
+.PHONY: kind-create-cluster
+kind-create-cluster:
+	# Ensuring cluster $(KIND_NAME)
+	kind create cluster --name $(KIND_NAME) --image kindest/node:$(KIND_VERSION) --retain --wait 5m
+	kubectl config use-context $(KIND_CLUSTER_NAME)
+
+.PHONY: create-user
+create-user:
+	kind get kubeconfig --name $(KIND_NAME) > kubeconfig_e2e
+	$(CONTAINER_TOOL) cp $(KIND_NAME)-control-plane:/etc/kubernetes/pki/ca.crt .
+	$(CONTAINER_TOOL) cp $(KIND_NAME)-control-plane:/etc/kubernetes/pki/ca.key .
+	openssl genrsa -out user1.key 2048
+	openssl req -new -key user1.key -out user1.csr -subj "/CN=user1/O=tenant1"
+	openssl x509 -req -in user1.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out user1.crt -days 360
+
+add-user:
+	yq -i '.clusters[0].cluster.certificate-authority-data = "$(shell base64 -w 0 < ca.crt)"' kubeconfig_e2e
+	yq -i '.contexts[0].context.user = "$(USER_TEST)"' kubeconfig_e2e
+	yq -i '.contexts[0].name = "$(CONTEXT_NAME)"' kubeconfig_e2e
+	yq -i '.current-context = "$(CONTEXT_NAME)"' kubeconfig_e2e
+	yq -i '.users += [{"name": "$(USER_TEST)", "user": {"client-certificate-data": "$(shell base64 -w 0 < user1.crt)", "client-key-data": "$(shell base64 -w 0 < user1.key)"}}]' kubeconfig_e2e
+
+cert-manager:
+	@echo Installing cert-manager
+	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.12.0/cert-manager.yaml
+	@echo "Waiting until the pods are up"
+	kubectl wait deployment -n cert-manager cert-manager --for condition=Available=True --timeout=180s
+	kubectl wait deployment -n cert-manager cert-manager-webhook --for condition=Available=True --timeout=180s
+
+install-resources:
+	-kubectl create ns open-cluster-management
+	kubectl apply -f ./config/webhook_test/
+	kubectl apply -f https://raw.githubusercontent.com/kubev2v/forklift/refs/heads/main/operator/config/crd/bases/forklift.konveyor.io_plans.yaml
+	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/api/main/cluster/v1/0000_00_clusters.open-cluster-management.io_managedclusters.crd.yaml
+	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/multicloud-integrations/refs/heads/main/deploy/crds/clusters.open-cluster-management.io_managedserviceaccounts.crd.yaml
+
+kind-load-image: docker-build
+	kind load image-archive <($(CONTAINER_TOOL) save $(IMG)) --name $(KIND_NAME)
+
+prepare-webhook-test: kind-create-cluster create-user add-user cert-manager kind-load-image install-resources deploy
+
+e2e-dependencies:
+	GOBIN=$(LOCALBIN) go install github.com/onsi/ginkgo/v2/ginkgo@$(shell awk '/github.com\/onsi\/ginkgo\/v2/ {print $$2}' go.mod)
+
+run-webhook-test: e2e-dependencies
+	# Run the webhook test
+	kubectl wait deployment -n open-cluster-management mtv-integrations-controller --for condition=Available=True --timeout=180s
+	$(GINKGO) -v --fail-fast --label-filter="webhook" test/e2e
+
+delete-cluster:
+	# Delete the kind cluster
+	-kind delete cluster --name $(KIND_NAME)
+	-rm kubeconfig_e2e ca.crt ca.key user1.crt user1.key user1.csr ca.srl

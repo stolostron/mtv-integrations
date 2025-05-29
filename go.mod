@@ -6,7 +6,13 @@ toolchain go1.24.3
 
 godebug default=go1.24
 
+// This redirect tells Go to fetch from kubev2v/forklift when konveyor/forklift-controller is imported
+replace github.com/konveyor/forklift-controller => github.com/kubev2v/forklift v0.0.0-20250414122456-a2c36061ea72
+
 require (
+	github.com/konveyor/forklift-controller v0.0.0
+	github.com/onsi/ginkgo/v2 v2.23.4
+	github.com/onsi/gomega v1.37.0
 	github.com/stretchr/testify v1.10.0
 	k8s.io/apimachinery v0.33.0
 	k8s.io/client-go v0.33.0
@@ -16,9 +22,16 @@ require (
 )
 
 require (
-	github.com/onsi/ginkgo/v2 v2.23.4 // indirect
-	github.com/onsi/gomega v1.37.0 // indirect
+	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
+	github.com/openshift/api v0.0.0-20230613151523-ba04973d3ed1 // indirect
+	github.com/openshift/custom-resource-status v1.1.2 // indirect
+	github.com/pborman/uuid v1.2.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
+	go.uber.org/automaxprocs v1.6.0 // indirect
+	golang.org/x/tools v0.33.0 // indirect
+	kubevirt.io/api v1.1.1 // indirect
+	kubevirt.io/containerized-data-importer-api v1.59.0 // indirect
+	kubevirt.io/controller-lifecycle-operator-sdk/api v0.0.0-20220329064328-f3cc58c6ed90 // indirect
 )
 
 require (

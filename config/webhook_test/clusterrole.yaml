@@ -1,0 +1,30 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: user1-cluster-admin
+subjects:
+- kind: User
+  name: user1                # Must match CN in the client cert
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: user1-role        # Or any other ClusterRole
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: user1-role  
+rules:
+- apiGroups:
+  - forklift.konveyor.io
+  resources:
+  - plans
+  verbs:
+  - create
+  - list
+  - watch
+  - get
+- apiGroups: ["clusterview.open-cluster-management.io"]
+  resources: ["kubevirtprojects"]
+  verbs: ["list"]

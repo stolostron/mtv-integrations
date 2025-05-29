@@ -25,3 +25,11 @@ vendor/
 *.swp
 *.swo
 *~
+ca.crt
+ca.key
+ca.srl
+user1.crt
+user1.key
+user1.csr
+
+kubeconfig_e2e

@@ -21,3 +21,6 @@ rules:
 - apiGroups: ["forklift.konveyor.io"]
   resources: ["providers"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["users", "groups", "serviceaccounts"]
+  verbs: ["impersonate"]

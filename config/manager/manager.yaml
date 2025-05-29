@@ -56,9 +56,13 @@ spec:
           - --leader-elect
           - --health-probe-bind-address=:8081
         image: controller:latest
-        imagePullPolicy: Always
+        imagePullPolicy: IfNotPresent
         name: controller
-        ports: []
+        ports:
+          # Webhook server port.
+          - containerPort: 9443
+            protocol: TCP
+            name: webhook-http
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -83,7 +87,16 @@ spec:
           requests:
             cpu: 10m
             memory: 64Mi
-        volumeMounts: []
-      volumes: []
+        # Webhook
+        volumeMounts:
+          - mountPath: /tmp/k8s-webhook-server/serving-certs
+            name: cert
+            readOnly: true
+      # Webhook
+      volumes: 
+        - name: cert
+          secret:
+            defaultMode: 420
+            secretName: mtv-plan-webhook-server-cert
       serviceAccountName: mtv-integrations-manager
       terminationGracePeriodSeconds: 10

@@ -1,0 +1,39 @@
+apiVersion: forklift.konveyor.io/v1beta1
+kind: Plan
+metadata:
+  name: test-plan
+  namespace: openshift-mtv
+spec:
+  map:
+    network:
+      apiVersion: forklift.konveyor.io/v1beta1
+      kind: NetworkMap
+      name: host-mth8w
+      namespace: openshift-mtv
+      uid: 9226b820-150b-47a9-b16f-959888e1f36c
+    storage:
+      apiVersion: forklift.konveyor.io/v1beta1
+      kind: StorageMap
+      name: host-sjqtz
+      namespace: openshift-mtv
+      uid: 5a1babf4-2b2f-4e9a-bce4-6b4034ae6548
+  migrateSharedDisks: true
+  provider:
+    destination:
+      apiVersion: forklift.konveyor.io/v1beta1
+      kind: Provider
+      name: managed1
+      namespace: openshift-mtv
+      uid: af5466a1-c3bd-4418-b7ec-40ed44fcec46
+    source:
+      apiVersion: forklift.konveyor.io/v1beta1
+      kind: Provider
+      name: host
+      namespace: openshift-mtv
+      uid: fdf3236b-a64c-44e3-99ac-439233a9c201
+  pvcNameTemplateUseGenerateName: true
+  targetNamespace: openshift-mtv
+  vms:
+  - id: 65132157-98dc-4996-bd11-5bfd6ad09537
+    name: centos-stream9-white-mackerel-48
+    namespace: defaults

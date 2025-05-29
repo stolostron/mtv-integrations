@@ -25,6 +25,7 @@ import (
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	"github.com/stolostron/mtv-integrations/controllers"
+	miwebhook "github.com/stolostron/mtv-integrations/webhook"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -40,6 +41,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	forkliftv1beta1 "github.com/konveyor/forklift-controller/pkg/apis/forklift/v1beta1"
+	authorizationv1 "k8s.io/api/authorization/v1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -52,6 +56,8 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(clusterv1.AddToScheme(scheme))
 	utilruntime.Must(auth.AddToScheme(scheme))
+	utilruntime.Must(forkliftv1beta1.SchemeBuilder.AddToScheme(scheme))
+	utilruntime.Must(authorizationv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -61,6 +67,8 @@ func main() {
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
 	var enableLeaderElection bool
+	// For local testing
+	var enableWebhook bool
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
@@ -73,7 +81,11 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.BoolVar(&secureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
-	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
+	flag.BoolVar(&enableWebhook, "enable-webhook", true,
+		"If set to false, the webhook endpoint is disabled. "+
+			"This is useful for local testing or when the webhook is not needed.")
+	flag.StringVar(&webhookCertPath, "webhook-cert-path", "/tmp/k8s-webhook-server/serving-certs",
+		"The directory that contains the webhook certificate.")
 	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
 	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
 	flag.StringVar(&metricsCertPath, "metrics-cert-path", "",
@@ -111,7 +123,7 @@ func main() {
 	// Initial webhook TLS options
 	webhookTLSOpts := tlsOpts
 
-	if len(webhookCertPath) > 0 {
+	if enableWebhook && len(webhookCertPath) > 0 {
 		setupLog.Info("Initializing webhook certificate watcher using provided certificates",
 			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
 
@@ -132,6 +144,7 @@ func main() {
 
 	webhookServer := webhook.NewServer(webhook.Options{
 		TLSOpts: webhookTLSOpts,
+		Port:    9443,
 	})
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
@@ -182,7 +195,6 @@ func main() {
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
-		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "f8b3c90a.mtv.managedclusters.cluster.open-cluster-management.io",
@@ -218,6 +230,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	if enableWebhook {
+		if err := mgr.Add(webhookServer); err != nil {
+			os.Exit(1)
+		}
+
+		webhookServer.Register("/validate-plan", miwebhook.ValidateWebhook(mgr.GetClient(), *mgr.GetConfig()))
+	}
 	// +kubebuilder:scaffold:builder
 
 	if metricsCertWatcher != nil {
