@@ -21,3 +21,22 @@ jobs:
         run: |
           go mod tidy
           make test
+         
+  webhook-test:
+    runs-on: ubuntu-latest
+    env:
+      KIND_NAME: kind-cluster
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Running Tests
+        run: |
+          openssl version
+          export CONTAINER_TOOL=docker
+          make prepare-webhook-test
+          make run-webhook-test
