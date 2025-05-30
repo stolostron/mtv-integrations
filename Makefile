@@ -229,9 +229,9 @@ kind-create-cluster:
 .PHONY: create-user
 create-user:
 	kind get kubeconfig --name $(KIND_NAME) > kubeconfig_e2e
-	podman ps
-	podman cp $(KIND_NAME)-control-plane:/etc/kubernetes/pki/ca.crt .
-	podman cp $(KIND_NAME)-control-plane:/etc/kubernetes/pki/ca.key .
+	$(CONTAINER_TOOL) ps
+	$(CONTAINER_TOOL) cp $(KIND_NAME)-control-plane:/etc/kubernetes/pki/ca.crt .
+	$(CONTAINER_TOOL) cp $(KIND_NAME)-control-plane:/etc/kubernetes/pki/ca.key .
 	openssl genrsa -out user1.key 2048
 	openssl req -new -key user1.key -out user1.csr -subj "/CN=user1/O=tenant1"
 	openssl x509 -req -in user1.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out user1.crt -days 360
@@ -257,7 +257,7 @@ install-resources:
 	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/multicloud-integrations/refs/heads/main/deploy/crds/clusters.open-cluster-management.io_managedserviceaccounts.crd.yaml
 
 kind-load-image: docker-build
-	kind load image-archive <(podman save $(IMG)) --name $(KIND_NAME)
+	kind load image-archive <($(CONTAINER_TOOL) save $(IMG)) --name $(KIND_NAME)
 
 prepare-webhook-test: kind-create-cluster create-user add-user cert-manager kind-load-image install-resources deploy
 

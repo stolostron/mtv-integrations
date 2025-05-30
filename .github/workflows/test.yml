@@ -37,9 +37,6 @@ jobs:
       - name: Running Tests
         run: |
           openssl version
-          podman -v
-          podman machine init
-          podman machine start
-          export CONTAINER_TOOL=podman
+          export CONTAINER_TOOL=docker
           make prepare-webhook-test
           make run-webhook-test
