@@ -82,7 +82,8 @@ func main() {
 	flag.BoolVar(&secureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
 	flag.BoolVar(&enableWebhook, "enable-webhook", true,
-		"If set to false, the webhook endpoint is disabled. This is useful for local testing or when the webhook is not needed.")
+		"If set to false, the webhook endpoint is disabled. "+
+			"This is useful for local testing or when the webhook is not needed.")
 	flag.StringVar(&webhookCertPath, "webhook-cert-path", "/tmp/k8s-webhook-server/serving-certs",
 		"The directory that contains the webhook certificate.")
 	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")

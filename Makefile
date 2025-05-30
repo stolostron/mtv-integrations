@@ -223,12 +223,13 @@ CONTEXT_NAME = test-context
 .PHONY: kind-create-cluster
 kind-create-cluster:
 	# Ensuring cluster $(KIND_NAME)
-	-KIND_EXPERIMENTAL_PROVIDER=podman kind create cluster --name $(KIND_NAME) --image kindest/node:$(KIND_VERSION)
+	kind create cluster --name $(KIND_NAME) --image kindest/node:$(KIND_VERSION)
 	kubectl config use-context $(KIND_CLUSTER_NAME)
 
 .PHONY: create-user
 create-user:
 	kind get kubeconfig --name $(KIND_NAME) > kubeconfig_e2e
+	podman ps
 	podman cp $(KIND_NAME)-control-plane:/etc/kubernetes/pki/ca.crt .
 	podman cp $(KIND_NAME)-control-plane:/etc/kubernetes/pki/ca.key .
 	openssl genrsa -out user1.key 2048
