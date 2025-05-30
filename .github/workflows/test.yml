@@ -38,6 +38,8 @@ jobs:
         run: |
           openssl version
           podman -v
+          podman machine init
+          podman machine start
           export CONTAINER_TOOL=podman
           make prepare-webhook-test
           make run-webhook-test

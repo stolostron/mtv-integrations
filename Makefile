@@ -223,7 +223,7 @@ CONTEXT_NAME = test-context
 .PHONY: kind-create-cluster
 kind-create-cluster:
 	# Ensuring cluster $(KIND_NAME)
-	kind create cluster --name $(KIND_NAME) --image kindest/node:$(KIND_VERSION)
+	kind create cluster --name $(KIND_NAME) --image kindest/node:$(KIND_VERSION) --retain --wait 5m
 	kubectl config use-context $(KIND_CLUSTER_NAME)
 
 .PHONY: create-user
