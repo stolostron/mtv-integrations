@@ -237,11 +237,12 @@ create-user:
 	openssl x509 -req -in user1.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out user1.crt -days 360
 
 add-user:
-	yq -i '.clusters[0].cluster.certificate-authority-data = "$(shell base64 < ca.crt)"' kubeconfig_e2e
+	yq -i '.clusters[0].cluster.certificate-authority-data = "$(shell base64 -w 0 < ca.crt)"' kubeconfig_e2e
 	yq -i '.contexts[0].context.user = "$(USER_TEST)"' kubeconfig_e2e
 	yq -i '.contexts[0].name = "$(CONTEXT_NAME)"' kubeconfig_e2e
 	yq -i '.current-context = "$(CONTEXT_NAME)"' kubeconfig_e2e
-	yq -i '.users += [{"name": "$(USER_TEST)", "user": {"client-certificate-data": "$(shell base64 < user1.crt)", "client-key-data": "$(shell base64 < user1.key)"}}]' kubeconfig_e2e
+	yq -i '.users += [{"name": "$(USER_TEST)", "user": {"client-certificate-data": "$(shell base64 -w 0 < user1.crt)", "client-key-data": "$(shell base64 -w 0 < user1.key)"}}]' kubeconfig_e2e
+	cat kubeconfig_e2e
 
 cert-manager:
 	@echo Installing cert-manager
