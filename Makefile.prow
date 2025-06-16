@@ -1,0 +1,19 @@
+-include /opt/build-harness/Makefile.prow
+-include Makefile
+
+.PHONY: push-prow
+push-prow: build-prow
+	docker push ${REPO_URL}/mtv-integrations:${VERSION}
+	docker tag ${REPO_URL}/mtv-integrations:${VERSION} ${REPO_URL}/mtv-integrations:latest
+	docker push ${REPO_URL}/mtv-integrations:latest
+
+.PHONY: build-prow
+build-prow: 
+	docker build -f Dockerfile . -t ${REPO_URL}/mtv-integrations:${VERSION}
+
+# Runs test target from Makefile
+.PHONY: unit-tests
+unit-tests: test
+	@echo "Run unit-tests"
+#	GOFLAGS="" go test -timeout 500s -v -short ./controllers
+	
