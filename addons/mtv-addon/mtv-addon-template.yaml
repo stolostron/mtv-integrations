@@ -1,0 +1,49 @@
+apiVersion: addon.open-cluster-management.io/v1alpha1
+kind: AddOnTemplate
+metadata:
+  name: mtv-operator
+spec:
+  addonName: mtv-operator
+  registration:
+    - type: CustomSigner
+      customSigner:
+        signerName: open-cluster-management.io/kubevirt-hyperconverged-addon
+        signingCA:
+          name: mtv-operator-ca
+          namespace: openshift-mtv
+  agentSpec:
+    workload:
+      manifests:
+        - apiVersion: policy.open-cluster-management.io/v1beta1
+          kind: OperatorPolicy
+          metadata:
+            name: mtv-operator
+            namespace: open-cluster-management-policies
+          spec:
+            complianceType: musthave
+            remediationAction: enforce
+            operatorGroup: # optional
+              name: openshift-mtv
+              namespace: openshift-mtv
+              targetNamespaces:
+                  - openshift-mtv
+            subscription:
+              channel: release-v2.8
+              name: mtv-operator
+              namespace: openshift-mtv
+            upgradeApproval: Automatic
+            # removalBehavior:                  # This only works if the complianceType: mustnothave
+            #   clusterServiceVersions: Delete
+            #   customResourceDefinitions: Keep
+            #   operatorGroups: DeleteIfUnused
+            #   subscriptions: Delete
+        - apiVersion: forklift.konveyor.io/v1beta1
+          kind: ForkliftController
+          metadata:
+            name: forklift-controller
+            namespace: openshift-mtv
+          spec:
+            feature_ui_plugin: 'true'
+            feature_validation: 'true'
+            feature_volume_populator: 'true'
+
