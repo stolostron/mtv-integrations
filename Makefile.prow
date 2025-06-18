@@ -13,7 +13,6 @@ build-prow:
 
 # Runs test target from Makefile
 .PHONY: unit-tests
-unit-tests: test
+unit-tests:
 	@echo "Run unit-tests"
-#	GOFLAGS="" go test -timeout 500s -v -short ./controllers
-	
+	go test $$(go list ./... | grep -v /e2e) -timeout 500s -v -short
