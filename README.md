@@ -1,62 +1,87 @@
-# MTV and CNV Addons for Open Cluster Management
+# MTV Integrations for Open Cluster Management
 
 ## Overview
 
-This repository contains two addons for Open Cluster Management (OCM) that enable virtualization and migration capabilities:
+This repository provides comprehensive integration capabilities for the Migration Toolkit for Virtualization (MTV) within Advanced Cluster Management (ACM) environments. It includes both a controller for MTV provider management and a webhook for plan access controler. There are also addons for virtualization capabilities.
 
-1. **MTV (Migration Toolkit for Virtualization) Addon**
-2. **CNV (Container-native Virtualization) Addon**
+## Core Components
 
-Both addons require the OperatorPolicy to be deployed on the target cluster, which is part of the full policy addon.
+### Provider Manager Controller
 
-## MTV Addon
+The **Provider Manager Controller** (implemented as the `ManagedClusterReconciler`) integrates ACM managed clusters as MTV providers. Its main responsibilities include:
 
-### Purpose
-The MTV Addon deploys the Migration Toolkit for Virtualization operator, which enables live migration of virtual machines between OpenShift clusters.
+The **MTV plan webhook** is a validating admission webhook for the `Plan` resource (from the Forklift/MTV API). Its purpose is to enforce security and access control when users create or update migration plans:
 
-### Features
-- Deploys the MTV operator in the `openshift-mtv` namespace
-- Configures the ForkliftController with UI plugin, validation, and volume populator features
-- Uses OperatorPolicy to manage the operator lifecycle
-- Automatically upgrades the operator (Automatic approval)
+## Addons
 
-### Requirements
-- Open Cluster Management (OCM) installed
-- Full policy addon installed (for OperatorPolicy)
-- Target cluster must be labeled with `local-cluster: "true"`
+This repository also contains two addons for OCM that enable container native virtualization and migration toolkit for virtualization capabilities:
 
-### Configuration
-The addon is configured to:
-- Use the `release-v2.8` channel for operator updates
-- Deploy in the `openshift-mtv` namespace
-- Enable UI plugin, validation, and volume populator features
+### MTV (Migration Toolkit for Virtualization) Addon
 
-## CNV Addon
+**Quick summary:**
+- **MTV Addon:** Installs the Migration Toolkit for Virtualization operator in the `openshift-mtv` namespace on the hub, enabling VM migration features. It uses the `release-v2.8` channel and enables UI plugin, validation, and volume populator features.
+- **CNV Addon:** Installs the KubeVirt Hyperconverged operator in the `openshift-cnv` namespace, providing virtualization capabilities. It configures optimized HyperConverged settings and uses OperatorPolicy for lifecycle management.
 
-### Purpose
-The CNV Addon deploys the KubeVirt Hyperconverged operator, which provides virtualization capabilities on OpenShift clusters.
+Both addons require ACM and the Policy addon. The CNV Addon targets clusters labeled with `acm/cnv-operator-install: "true"`.
 
-### Features
-- Deploys the KubeVirt Hyperconverged operator in the `openshift-cnv` namespace
-- Configures HyperConverged custom resource with optimized settings
-- Sets up HostPathProvisioner for storage
-- Uses OperatorPolicy to manage the operator lifecycle
-- Automatically upgrades the operator (Automatic approval)
+**See the [addons/README.md](addons/README.md) for full details and usage.**
 
-### Requirements
-- Open Cluster Management (OCM) installed
-- Full policy addon installed (for OperatorPolicy)
-- Target cluster must be labeled with `acm/cnv-operator-install: "true"`
+## Architecture Summary
 
-### Configuration
-The addon is configured with:
-- Stable channel for operator updates
-- Optimized HyperConverged settings including:
-  - Memory overcommit percentage: 100%
-  - Live migration configuration
-  - Resource requirements
-  - Feature gates for enhanced functionality
-- HostPathProvisioner with 50Gi storage pool
+For a detailed explanation of the controller and webhook architecture, see [architecture/README.md](architecture/README.md).
+
+## Installation
+
+### Core Controller and Webhook
+
+```bash
+# Build and deploy the controller
+make build
+make deploy
+
+# Enable webhook (requires certificates)
+# Set ENABLE_WEBHOOK=true and provide certificate paths
+make deploy ENABLE_WEBHOOK=true
+```
+
+### Addons
+
+```bash
+# Deploy CNV Addon
+oc apply -f ./addons/cnv-addon
+
+# Deploy MTV Addon
+oc apply -f ./addons/mtv-addon
+```
+
+## Development
+
+### Building
+```bash
+make build
+```
+
+### Running Locally
+```bash
+make run
+```
+
+### Testing
+```bash
+# Run unit tests
+make test
+
+# Run webhook tests
+make run-webhook-test
+```
+
+### Building Container Image
+```bash
+# Set your registry
+export REGISTRY_BASE=quay.io/your-org
+make docker-build
+make docker-push
+```
 
 ## Uninstallation
 
@@ -91,27 +116,10 @@ The addons do NOT automatically remove the operators when uninstalled. Manual cl
    oc delete namespace openshift-cnv
    ```
 
-## Development
+## Contributing
 
-### Building
-```bash
-make build
-```
+Please read our [Contributing Guidelines](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
 
-### Running Locally
-```bash
-make run
-```
+## License
 
-### Deploying to Cluster
-```bash
-make deploy
-```
-
-### Building Container Image
-```bash
-# Set your registry
-export REGISTRY_BASE=quay.io/your-org
-make docker-build
-make docker-push
-```
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
