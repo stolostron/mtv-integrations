@@ -6,7 +6,7 @@ on:
 
 jobs:
   test:
-    name: Run on Ubuntu
+    name: Unit test
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -21,7 +21,6 @@ jobs:
         run: |
           go mod tidy
           make test
-         
   webhook-test:
     runs-on: ubuntu-latest
     env:
@@ -40,3 +39,36 @@ jobs:
           export CONTAINER_TOOL=docker
           make prepare-webhook-test
           make run-webhook-test
+          
+  e2e-test:
+    runs-on: ubuntu-latest
+    env:
+      KIND_NAME: kind-cluster
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Running Tests
+        run: |
+          make prepare-e2e-test
+          make run-e2e-test
+
+  sonarcloud:
+    runs-on: ubuntu-latest
+    needs:
+      - e2e-test
+      - webhook-test
+      - test
+    steps:
+      - run: echo "Running SonarCloud analysis..."
+      - name: Upload artifacts for the sonarcloud workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts
+          path: |
+            coverage*.out
+            report*.json

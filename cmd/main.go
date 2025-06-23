@@ -44,6 +44,7 @@ import (
 
 	forkliftv1beta1 "github.com/konveyor/forklift-controller/pkg/apis/forklift/v1beta1"
 	authorizationv1 "k8s.io/api/authorization/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -58,6 +59,7 @@ func init() {
 	utilruntime.Must(auth.AddToScheme(scheme))
 	utilruntime.Must(forkliftv1beta1.SchemeBuilder.AddToScheme(scheme))
 	utilruntime.Must(authorizationv1.AddToScheme(scheme))
+	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 

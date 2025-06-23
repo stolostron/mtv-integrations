@@ -72,7 +72,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: fmt vet setup-envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -v -json $$(go list ./... | grep -v /e2e) -coverprofile coverage_unit.out | tee report_unit.json
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
@@ -225,10 +225,10 @@ kind-create-cluster:
 	# Ensuring cluster $(KIND_NAME)
 	kind create cluster --name $(KIND_NAME) --image kindest/node:$(KIND_VERSION) --retain --wait 5m
 	kubectl config use-context $(KIND_CLUSTER_NAME)
+	kind get kubeconfig --name $(KIND_NAME) > kubeconfig_e2e
 
 .PHONY: create-user
 create-user:
-	kind get kubeconfig --name $(KIND_NAME) > kubeconfig_e2e
 	$(CONTAINER_TOOL) cp $(KIND_NAME)-control-plane:/etc/kubernetes/pki/ca.crt .
 	$(CONTAINER_TOOL) cp $(KIND_NAME)-control-plane:/etc/kubernetes/pki/ca.key .
 	openssl genrsa -out user1.key 2048
@@ -261,13 +261,35 @@ kind-load-image: docker-build
 
 prepare-webhook-test: kind-create-cluster create-user add-user cert-manager kind-load-image install-resources deploy
 
+prepare-e2e-test: kind-create-cluster cert-manager install-resources deploy
+
 e2e-dependencies:
 	GOBIN=$(LOCALBIN) go install github.com/onsi/ginkgo/v2/ginkgo@$(shell awk '/github.com\/onsi\/ginkgo\/v2/ {print $$2}' go.mod)
+
+SECRET_NAME="mtv-plan-webhook-server-cert"
+NAMESPACE="open-cluster-management"
+run-instrument:
+	kubectl get secret ${SECRET_NAME} -n ${NAMESPACE} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+	kubectl get secret ${SECRET_NAME} -n ${NAMESPACE} -o jsonpath='{.data.tls\.crt}' | base64 -d > tls.crt
+	kubectl get secret ${SECRET_NAME} -n ${NAMESPACE} -o jsonpath='{.data.tls\.key}' | base64 -d > tls.key
+	go build -cover -o mtv_integrations_instrumented cmd/main.go
+	mkdir -p coverage_profiles
+	GOCOVERDIR=coverage_profiles nohup ./mtv_integrations_instrumented --webhook-cert-path=. >> test/e2e/e2e.log  2>&1 &
+
+exit-instrument:
+	# Exit the instrumented process
+	pgrep mtv_integrations_instrumented | xargs kill -9 || true
+	-rm test/e2e/e2e.log 
 
 run-webhook-test: e2e-dependencies
 	# Run the webhook test
 	kubectl wait deployment -n open-cluster-management mtv-integrations-controller --for condition=Available=True --timeout=180s
-	$(GINKGO) -v --fail-fast --label-filter="webhook" test/e2e
+	$(GINKGO) -v --fail-fast --label-filter="webhook" --json-report=report_webhook.json test/e2e
+
+run-e2e-test: e2e-dependencies run-instrument
+	$(GINKGO) -v --fail-fast --label-filter="!webhook" --json-report=report_e2e.json test/e2e
+	-go tool covdata textfmt -i=coverage_profiles -o=coverage_e2e.out
+	$(MAKE) exit-instrument
 
 delete-cluster:
 	# Delete the kind cluster

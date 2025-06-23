@@ -6,13 +6,16 @@ import (
 	"encoding/json"
 	"time"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,6 +32,10 @@ type ManagedClusterReconciler struct {
 	Scheme        *runtime.Scheme
 	DynamicClient dynamic.Interface
 }
+
+const (
+	ProviderCRDName = "providers.forklift.konveyor.io"
+)
 
 //nolint:revive // Added by kubebuilder
 //+kubebuilder:rbac:groups=cluster.open-cluster-management.io,resources=managedclusters,verbs=get;list;watch
@@ -47,8 +54,19 @@ type ManagedClusterReconciler struct {
 
 func (r *ManagedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
-	log.Info("Reconciling ManagedCluster", "name", req.NamespacedName)
 
+	crdEstablished, err := r.checkProviderCRD(ctx)
+	if err != nil {
+		log.Error(err, "Failed to check if Provider CRD is established")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+	}
+
+	if !crdEstablished {
+		log.Info("Provider CRD is not established, skipping reconciliation")
+		return ctrl.Result{}, nil // CRD is not established, do not proceed with reconciliation
+	}
+
+	log.Info("Reconciling ManagedCluster", "name", req.NamespacedName)
 	// Fetch the ManagedCluster instance
 	managedCluster := &clusterv1.ManagedCluster{}
 	if err := r.Get(ctx, req.NamespacedName, managedCluster); err != nil {
@@ -92,7 +110,8 @@ func (r *ManagedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			managedServiceAccount.Namespace = managedClusterNamespace
 			managedServiceAccount.Spec.Rotation.Enabled = true
 			managedServiceAccount.Spec.Rotation.Validity = metav1.Duration{
-				Duration: time.Minute * 60}
+				Duration: time.Minute * 60,
+			}
 			if err := controllerutil.SetControllerReference(
 				managedCluster,
 				managedServiceAccount,
@@ -197,12 +216,40 @@ func (r *ManagedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// SetupWithManager sets up the controller with the Manager.å
 func (r *ManagedClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	log := mgr.GetLogger().WithName("controllers.ManagedClusterReconciler.SetupWithManager")
+	log.Info("Initializing ManagedCluster controller setup")
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&clusterv1.ManagedCluster{}).
 		Owns(&auth.ManagedServiceAccount{}). // Watch ManagedServiceAccounts owned by ManagedClusters
-		Complete(r)
+		Watches(
+			// Watch the Provider CRD
+			&apiextensionsv1.CustomResourceDefinition{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				// Only react to the specific Provider CRD
+				if obj.GetName() != ProviderCRDName {
+					return nil
+				}
+				// List all ManagedClusters and enqueue a reconcile for each
+				var reqs []reconcile.Request
+				var mcList clusterv1.ManagedClusterList
+				if err := r.Client.List(ctx, &mcList); err != nil {
+					log.Error(err, "Failed to list ManagedClusters on Provider CRD event")
+					return nil
+				}
+				for _, mc := range mcList.Items {
+					reqs = append(reqs, reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      mc.Name,
+							Namespace: mc.Namespace, // Namespace is empty for ManagedCluster
+						},
+					})
+				}
+				return reqs
+			}),
+		).Complete(r)
 }
 
 func (r *ManagedClusterReconciler) reconcileResource(
@@ -210,8 +257,8 @@ func (r *ManagedClusterReconciler) reconcileResource(
 	gvr schema.GroupVersionResource,
 	managedClusterName string,
 	namespace string,
-	payload map[string]interface{}) error {
-
+	payload map[string]interface{},
+) error {
 	log := log.FromContext(ctx)
 	resourceKind := gvr.Resource
 	_, err := r.DynamicClient.Resource(gvr).Namespace(namespace).Get(
@@ -252,8 +299,8 @@ func deleteResource(
 	dynamicClient dynamic.Interface,
 	gvr schema.GroupVersionResource,
 	managedClusterName string,
-	namespace string) error {
-
+	namespace string,
+) error {
 	log := log.FromContext(ctx)
 	resourceKind := gvr.Resource
 	managedClusterMTV := managedClusterMTVName(managedClusterName)
@@ -274,8 +321,8 @@ func deleteResource(
 }
 
 func (r *ManagedClusterReconciler) cleanupManagedClusterResources(ctx context.Context,
-	managedCluster *clusterv1.ManagedCluster) error {
-
+	managedCluster *clusterv1.ManagedCluster,
+) error {
 	log := log.FromContext(ctx)
 	log.Info("The ManagedCluster is no longer labeled for CNV operator installation, cleaning up resources")
 	managedClusterName := managedCluster.GetName()
@@ -327,4 +374,30 @@ func (r *ManagedClusterReconciler) cleanupManagedClusterResources(ctx context.Co
 
 func managedClusterMTVName(name string) string {
 	return name + "-mtv"
+}
+
+func (r *ManagedClusterReconciler) checkProviderCRD(ctx context.Context) (bool, error) {
+	// Check if the Provider CRD is established
+	crd := &apiextensionsv1.CustomResourceDefinition{}
+	err := r.Client.Get(ctx, types.NamespacedName{Name: ProviderCRDName}, crd)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	isEstablished := false
+	for _, cond := range crd.Status.Conditions {
+		if cond.Type == apiextensionsv1.Established && cond.Status == apiextensionsv1.ConditionTrue {
+			isEstablished = true
+			break
+		}
+	}
+
+	if isEstablished {
+		return true, nil // CRD exists but is not established
+	}
+
+	return false, nil
 }

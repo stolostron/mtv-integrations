@@ -31,5 +31,14 @@ ca.srl
 user1.crt
 user1.key
 user1.csr
+tls.crt
+tls.key
 
 kubeconfig_e2e
+mtv_integrations_instrumented
+
+report_*.json
+
+coverage_profiles/*
+
+dist/*
