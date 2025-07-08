@@ -1,0 +1,46 @@
+# For Openshift testing
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    # For openshift
+    service.beta.openshift.io/serving-cert-secret-name: mtv-plan-webhook-server-cert
+  name: mtv-plan-webhook-service
+  namespace: open-cluster-management
+spec:
+  ports:
+  - port: 443
+    protocol: TCP
+    targetPort: 9443
+  selector:
+    control-plane: mtv-controller
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  annotations:
+    # For openshift
+    service.beta.openshift.io/inject-cabundle: "true"
+    cert-manager.io/inject-ca-from: open-cluster-management/mtv-plan-webhook-serving-cert
+  name: mtv-plan-webhook-validating-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: mtv-plan-webhook-service
+      namespace: open-cluster-management
+      path: /validate-plan
+  failurePolicy: Fail
+  name: validate.mtv.plan
+  rules:
+  - apiGroups:
+    - forklift.konveyor.io
+    apiVersions:
+    - v1beta1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - plans
+  sideEffects: None
