@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/konveyor/forklift-controller/pkg/apis/forklift/v1beta1"
 	v1 "k8s.io/api/admission/v1"
@@ -41,7 +42,15 @@ func ValidateWebhook(c client.Client, config rest.Config) *webhook.Admission {
 				}
 
 				targetNamespace := plan.Spec.TargetNamespace
-				clusterName := plan.Spec.Provider.Destination.Name
+				destinationName := plan.Spec.Provider.Destination.Name
+
+				if !strings.HasSuffix(destinationName, "-mtv") {
+					log.Info("Skipping Plan validation: destination provider does not have MTV-managed suffix",
+						"destinationProvider", destinationName)
+					return webhook.Allowed("Plan validation skipped: destination provider is not managed by MTV controller")
+				}
+
+				clusterName := strings.TrimSuffix(destinationName, "-mtv")
 
 				log = log.WithValues("cluster", clusterName, "namespace", targetNamespace)
 

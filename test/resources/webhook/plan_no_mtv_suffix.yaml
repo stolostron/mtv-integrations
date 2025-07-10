@@ -1,7 +1,7 @@
 apiVersion: forklift.konveyor.io/v1beta1
 kind: Plan
 metadata:
-  name: test-plan
+  name: test-plan-1
   namespace: openshift-mtv
 spec:
   map:
@@ -22,7 +22,7 @@ spec:
     destination:
       apiVersion: forklift.konveyor.io/v1beta1
       kind: Provider
-      name: managed-empty-mtv
+      name: no-auth
       namespace: openshift-mtv
       uid: af5466a1-c3bd-4418-b7ec-40ed44fcec46
     source:

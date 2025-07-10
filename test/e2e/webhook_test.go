@@ -48,4 +48,25 @@ var _ = Describe("Test webhook", func() {
 				utils.Kubectl("delete", "-f", planManaged1Path, "--ignore-not-found")
 			})
 		})
+
+	It("Should get success message from webhook when provider is not managed by MTV controller",
+		Label("webhook"), func() {
+			const planSuffixPath string = path + "/plan_no_mtv_suffix.yaml"
+			const planName string = "test-plan-1"
+
+			utils.Kubectl("create", "ns", ns)
+			DeferCleanup(func() {
+				By("Clean up the namespace")
+				utils.Kubectl("delete", "ns", ns, "--ignore-not-found")
+			})
+
+			output, _ := utils.KubectlWithOutput("apply", "-f", planSuffixPath, "--kubeconfig", "../../kubeconfig_e2e", "-n", ns)
+			DeferCleanup(func() {
+				By("Clean up the plan resource")
+				utils.Kubectl("delete", "-f", planSuffixPath, "--ignore-not-found")
+			})
+
+			//nolint:lll
+			Expect(output).Should(ContainSubstring("plan.forklift.konveyor.io/" + planName + " created"))
+		})
 })
