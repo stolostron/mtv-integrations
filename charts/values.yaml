@@ -1,13 +1,14 @@
 # Copyright (c) 2025 Red Hat, Inc.
 global:
   imageOverrides:
-    mtv_integrations_controller: ""
+    mtv_integrations_controller: quay.io/stolostron/mtv-integrations:latest
   templateOverrides: {}
-  namespace: default
+  namespace:  open-cluster-management
   pullSecret: null
   pullPolicy: Always
   hubSize: Small
 hubconfig:
+  hubVersion: 2.15.0
   nodeSelector: null
   proxyConfigs: {}
   replicaCount: 1

@@ -32,11 +32,11 @@ spec:
               name: mtv-operator
               namespace: openshift-mtv
             upgradeApproval: Automatic
-            # removalBehavior:                  # This only works if the complianceType: mustnothave
-            #   clusterServiceVersions: Delete
-            #   customResourceDefinitions: Keep
-            #   operatorGroups: DeleteIfUnused
-            #   subscriptions: Delete
+            removalBehavior:                  # This only works if the complianceType: mustnothave
+              clusterServiceVersions: Delete
+              customResourceDefinitions: Delete
+              operatorGroups: DeleteIfUnused
+              subscriptions: Delete
         - apiVersion: forklift.konveyor.io/v1beta1
           kind: ForkliftController
           metadata:
@@ -46,4 +46,3 @@ spec:
             feature_ui_plugin: 'true'
             feature_validation: 'true'
             feature_volume_populator: 'true'
-

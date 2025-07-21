@@ -14,4 +14,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: quay.io/stolostron/mtv-integrations
-  newTag: 0.0.1
+  newTag: latest
