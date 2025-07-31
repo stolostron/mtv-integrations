@@ -100,7 +100,7 @@ make docker-push
    Replace `QUAY_IMG` with your actual image name and deploy using:
    ```bash
    kubectl apply -f config/default/webhook.yaml
-   IMG=<QUAY_IMG> make deploy
+   IMG=quay.io/stolostron/mtv-integrations:latest make deploy
    ```
 
 #### Run Locally in VS Code (without webhook)
