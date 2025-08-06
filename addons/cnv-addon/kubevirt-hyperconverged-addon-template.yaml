@@ -20,9 +20,25 @@ spec:
             name: operatorpolicy-manager
             namespace: open-cluster-management-policies
           rules:
+            - apiGroups: ["hco.kubevirt.io"]
+              resources: ["hyperconvergeds"]
+              verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
             - apiGroups: ["policy.open-cluster-management.io"]
               resources: ["operatorpolicies"]
               verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        - apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          metadata:
+            name: operatorpolicy-manager-hosted-binding
+            namespace: open-cluster-management-policies
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: Role
+            name: operatorpolicy-manager
+          subjects:
+            - kind: ServiceAccount
+              name: klusterlet-{{CLUSTER_NAME}}-work-sa
+              namespace: open-cluster-management-{{CLUSTER_NAME}}
         - apiVersion: rbac.authorization.k8s.io/v1
           kind: RoleBinding
           metadata:
@@ -34,8 +50,8 @@ spec:
             name: operatorpolicy-manager
           subjects:
             - kind: ServiceAccount
-              name: klusterlet-work-sa
-              namespace: open-cluster-management-agent
+              name: klusterlet-{{CLUSTER_NAME}}-work-sa
+              namespace: open-cluster-management-{{CLUSTER_NAME}}
         - apiVersion: policy.open-cluster-management.io/v1beta1
           kind: OperatorPolicy
           metadata:
@@ -113,21 +129,3 @@ spec:
             uninstallStrategy: BlockUninstallIfWorkloadsExist
             resourceRequirements:
               vmiCPUAllocationRatio: 10
-        - apiVersion: hostpathprovisioner.kubevirt.io/v1beta1
-          kind: HostPathProvisioner
-          metadata:
-            name: hostpath-provisioner
-          spec:
-            imagePullPolicy: IfNotPresent
-            storagePools:
-              - name: local
-                path: /var/hpvolumes
-                pvcTemplate:
-                  accessModes:
-                    - ReadWriteOnce
-                  resources:
-                    requests:
-                      storage: 50Gi
-            workload:
-              nodeSelector:
-                kubernetes.io/os: linux
