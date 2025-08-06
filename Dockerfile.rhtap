@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM registry.ci.openshift.org/stolostron/builder:go1.24-linux AS builder
+FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:rhel_9_1.24 AS builder
 
 # Go build without FIPS capabilities or strictfipsruntime support compiled in.
 # Uncomment the following lines once a Go 1.24 base image with FIPS support is available:
