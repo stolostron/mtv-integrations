@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM registry.ci.openshift.org/stolostron/builder:go1.23-linux AS builder
+FROM registry.ci.openshift.org/stolostron/builder:go1.24-linux AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -10,7 +10,7 @@ COPY go.sum go.sum
 
 # Cache deps
 # RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go mod vendor
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go mod tidy
+RUN CGO_ENABLED=1 GOOS=${TARGETOS:-linux} go mod tidy
 
 # Copy the go source
 COPY cmd/main.go cmd/main.go
@@ -21,7 +21,7 @@ COPY webhook/ webhook/
 # was called. For example, if we call make docker-build in a local env which has the Apple Silicon M1 SO
 # the docker BUILDPLATFORM arg will be linux/arm64 when for Apple x86 it will be linux/amd64. Therefore,
 # by leaving it empty we can ensure that the container and binary shipped on it will have the same platform.
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -a -mod=mod -o manager cmd/main.go
+RUN CGO_ENABLED=1 GOOS=${TARGETOS:-linux} go build -a -mod=mod -o manager cmd/main.go
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
