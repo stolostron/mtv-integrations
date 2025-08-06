@@ -82,6 +82,34 @@ Note:
   cluster. This is done by logging into the cluster an removing the Operator from the console or cli.
 
 
+## ClusterRole Permissions
 
+### clusterrole.yaml
+This file contains ClusterPermission resources that grant KubeVirt admin access to cluster administrators.
 
+#### What it does:
+- **kubevirt-admin ClusterPermission**: Binds the `kubevirt.io:admin` ClusterRole to the `system:cluster-admins` group
+- Grants full administrative privileges for KubeVirt resources (VMs, DataVolumes, etc.)
+- Required for administrators to manage virtualization resources deployed by the CNV addon
 
+#### Configuration:
+- Currently configured for `bm14` and `local-cluster` namespaces (examples)
+- **Important**: Update the namespace values to match your target cluster names before applying
+
+#### Usage:
+1. Edit the file to replace `bm14` and `local-cluster` with your actual cluster names:
+   ```yaml
+   metadata:
+     name: kubevirt-admin
+     namespace: <your-cluster-name>
+   ```
+
+2. Apply the permissions:
+   ```bash
+   oc apply -f clusterrole.yaml
+   ```
+
+3. Verify the permissions are applied:
+   ```bash
+   oc get clusterpermissions -A
+   ```
