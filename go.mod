@@ -14,7 +14,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.23.4
 	github.com/onsi/gomega v1.37.0
 	github.com/stretchr/testify v1.10.0
-	k8s.io/apimachinery v0.33.0
+	k8s.io/apimachinery v0.33.2
 	k8s.io/client-go v0.33.0
 	open-cluster-management.io/api v0.16.1
 	open-cluster-management.io/managed-serviceaccount v0.8.0
@@ -23,7 +23,7 @@ require (
 
 require (
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
-	github.com/openshift/api v0.0.0-20230613151523-ba04973d3ed1 // indirect
+	github.com/openshift/api v0.0.0-20250808142411-c974eeafe3f1 // indirect
 	github.com/openshift/custom-resource-status v1.1.2 // indirect
 	github.com/pborman/uuid v1.2.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
@@ -104,7 +104,7 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/api v0.33.0
+	k8s.io/api v0.33.2
 	k8s.io/apiextensions-apiserver v0.33.0
 	k8s.io/apiserver v0.33.0 // indirect
 	k8s.io/component-base v0.33.0 // indirect
