@@ -5,13 +5,6 @@ metadata:
   name: mtv-operator
 spec:
   addonName: mtv-operator
-  registration:
-    - type: CustomSigner
-      customSigner:
-        signerName: open-cluster-management.io/kubevirt-hyperconverged-addon
-        signingCA:
-          name: mtv-operator-ca
-          namespace: openshift-mtv
   agentSpec:
     workload:
       manifests:
