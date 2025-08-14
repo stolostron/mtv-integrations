@@ -5,13 +5,6 @@ metadata:
   name: mtv-operator
 spec:
   addonName: mtv-operator
-  registration:
-    - type: CustomSigner
-      customSigner:
-        signerName: open-cluster-management.io/kubevirt-hyperconverged-addon
-        signingCA:
-          name: mtv-operator-ca
-          namespace: openshift-mtv
   agentSpec:
     workload:
       manifests:
@@ -65,15 +58,14 @@ spec:
               matchLabels:
                 app: mtv-integrations
                 component: "ocm-mtv-integrations-ctrl"
-                release: mtv-integrations
             replicas: {{ .Values.hubconfig.replicaCount }}
             template:
               metadata:
                 annotations:
                   kubectl.kubernetes.io/default-container: controller
                 labels:
-                  control-plane: mtv-controller
-                  app.kubernetes.io/name: mtv-integrations
+                  app: mtv-integrations
+                  component: "ocm-mtv-integrations-ctrl"
               spec:
                 serviceAccountName: mtv-integrations-manager
                 hostNetwork: false

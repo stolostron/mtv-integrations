@@ -54,7 +54,7 @@ webhooks:
       name: mtv-plan-webhook-service
       namespace: open-cluster-management
       path: /validate-plan
-  failurePolicy: Fail
+  failurePolicy: Ignore
   name: validate.mtv.plan
   rules:
   - apiGroups:
