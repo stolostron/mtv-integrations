@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Red Hat, Inc.
 global:
   imageOverrides:
-    mtv_integrations_controller: quay.io/stolostron/mtv-integrations:latest
+    mtv_integrations: quay.io/stolostron/mtv-integrations:latest
   templateOverrides: {}
   namespace:  open-cluster-management
   pullSecret: null
