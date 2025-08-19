@@ -466,8 +466,8 @@ kubevirt.io/containerized-data-importer-api v1.59.0 h1:GdDt9BlR0qHejpMaPfASbsG8J
 kubevirt.io/containerized-data-importer-api v1.59.0/go.mod h1:4yOGtCE7HvgKp7wftZZ3TBvDJ0x9d6N6KaRjRYcUFpE=
 kubevirt.io/controller-lifecycle-operator-sdk/api v0.0.0-20220329064328-f3cc58c6ed90 h1:QMrd0nKP0BGbnxTqakhDZAUhGKxPiPiN5gSDqKUmGGc=
 kubevirt.io/controller-lifecycle-operator-sdk/api v0.0.0-20220329064328-f3cc58c6ed90/go.mod h1:018lASpFYBsYN6XwmA2TIrPCx6e0gviTd/ZNtSitKgc=
-open-cluster-management.io/api v0.16.1 h1:mS+4UGxHLPQd7CRM0gdFQdVaz139Lo2bkLfqSE0CDNU=
-open-cluster-management.io/api v0.16.1/go.mod h1:9erZEWEn4bEqh0nIX2wA7f/s3KCuFycQdBrPrRzi0QM=
+open-cluster-management.io/api v0.16.2 h1:JzpJtgp/qJKjDLEO7o7q5eVLxYkfgxhtagJvWFbaNno=
+open-cluster-management.io/api v0.16.2/go.mod h1:9erZEWEn4bEqh0nIX2wA7f/s3KCuFycQdBrPrRzi0QM=
 open-cluster-management.io/managed-serviceaccount v0.8.0 h1:8+Z142IUqVT/enxXkyb0nzLUL7JaR7dBM2fDtlCA4pM=
 open-cluster-management.io/managed-serviceaccount v0.8.0/go.mod h1:eTixwpLA6XkPQARDjze3k0KRjwn6N22eFOEFx8CpB0I=
 sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.32.1 h1:Cf+ed5N8038zbsaXFO7mKQDi/+VcSRafb0jM84KX5so=
