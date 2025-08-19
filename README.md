@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository provides comprehensive integration capabilities for the Migration Toolkit for Virtualization (MTV) within Advanced Cluster Management (ACM) environments. It includes both a controller for MTV provider management and a webhook for plan access controler. There are also addons for virtualization capabilities.
+This repository provides comprehensive integration capabilities for the Migration Toolkit for Virtualization (MTV) within Advanced Cluster Management (ACM) environments. It includes both a controller for MTV provider management and a webhook for plan access controller. There are also addons for virtualization capabilities.
 
 ## Core Components
 
@@ -10,7 +10,11 @@ This repository provides comprehensive integration capabilities for the Migratio
 
 The **Provider Manager Controller** (implemented as the `ManagedClusterReconciler`) integrates ACM managed clusters as MTV providers. Its main responsibilities include:
 
-The **MTV plan webhook** is a validating admission webhook for the `Plan` resource (from the Forklift/MTV API). Its purpose is to enforce security and access control when users create or update migration plans:
+- Managing MTV provider lifecycle on ACM managed clusters
+- Ensuring proper authentication and authorization for MTV operations
+- Coordinating with the MTV plan webhook for access control
+
+The **MTV plan webhook** is a validating admission webhook for the `Plan` resource (from the Forklift/MTV API). Its purpose is to enforce security and access control when users create or update migration plans.
 
 ## Addons
 
