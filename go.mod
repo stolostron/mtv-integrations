@@ -11,7 +11,7 @@ replace github.com/konveyor/forklift-controller => github.com/kubev2v/forklift v
 
 require (
 	github.com/konveyor/forklift-controller v0.0.0
-	github.com/onsi/ginkgo/v2 v2.23.4
+	github.com/onsi/ginkgo/v2 v2.25.1
 	github.com/onsi/gomega v1.37.0
 	github.com/stretchr/testify v1.10.0
 	k8s.io/apimachinery v0.33.4
@@ -22,6 +22,7 @@ require (
 )
 
 require (
+	github.com/Masterminds/semver/v3 v3.3.1 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/openshift/api v0.0.0-20250819153839-21f935b39a95 // indirect
 	github.com/openshift/custom-resource-status v1.1.2 // indirect
