@@ -28,6 +28,7 @@ require (
 	github.com/pborman/uuid v1.2.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	go.uber.org/automaxprocs v1.6.0 // indirect
+	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/tools v0.36.0 // indirect
 	kubevirt.io/api v1.1.1 // indirect
 	kubevirt.io/containerized-data-importer-api v1.59.0 // indirect
@@ -115,7 +116,7 @@ require (
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.7.0 // indirect
-	sigs.k8s.io/yaml v1.4.0 // indirect
+	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
 replace open-cluster-management.io/cluster-permission => github.com/open-cluster-management-io/cluster-permission v0.15.0
