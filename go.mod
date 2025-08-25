@@ -23,14 +23,12 @@ require (
 
 require (
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
-	github.com/openshift/api v0.0.0-20250819153839-21f935b39a95 // indirect
 	github.com/openshift/custom-resource-status v1.1.2 // indirect
-	github.com/pborman/uuid v1.2.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	go.uber.org/automaxprocs v1.6.0 // indirect
 	golang.org/x/tools v0.36.0 // indirect
-	kubevirt.io/api v1.1.1 // indirect
-	kubevirt.io/containerized-data-importer-api v1.59.0 // indirect
+	kubevirt.io/api v1.6.0 // indirect
+	kubevirt.io/containerized-data-importer-api v1.60.3-0.20241105012228-50fbed985de9 // indirect
 	kubevirt.io/controller-lifecycle-operator-sdk/api v0.0.0-20220329064328-f3cc58c6ed90 // indirect
 )
 
