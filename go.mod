@@ -13,7 +13,7 @@ require (
 	github.com/konveyor/forklift-controller v0.0.0
 	github.com/onsi/ginkgo/v2 v2.23.4
 	github.com/onsi/gomega v1.37.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.0
 	k8s.io/apimachinery v0.33.4
 	k8s.io/client-go v0.33.4
 	open-cluster-management.io/api v0.16.2
