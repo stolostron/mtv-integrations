@@ -29,6 +29,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	go.uber.org/automaxprocs v1.6.0 // indirect
 	golang.org/x/tools v0.36.0 // indirect
+	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
 	kubevirt.io/api v1.1.1 // indirect
 	kubevirt.io/containerized-data-importer-api v1.59.0 // indirect
 	kubevirt.io/controller-lifecycle-operator-sdk/api v0.0.0-20220329064328-f3cc58c6ed90 // indirect
@@ -96,7 +97,6 @@ require (
 	golang.org/x/term v0.34.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
-	gomodules.xyz/jsonpatch/v2 v2.5.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250818200422-3122310a409c // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250811230008-5f3141c8851a // indirect
 	google.golang.org/grpc v1.73.0 // indirect
