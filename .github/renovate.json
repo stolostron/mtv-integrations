@@ -6,8 +6,30 @@
   "baseBranches": [
     "main"
   ],
-  "rebaseWhen": "behind-base-branch",
   "prConcurrentLimit": 0,
+  "dependencyDashboard": true,
   "timezone": "America/New_York",
-  "dependencyDashboard": true
+  "dockerfile": {
+    "managerFilePatterns": ["Dockerfile.rhtap"],
+    "ignorePaths": ["**/Dockerfile"],
+    "pinDigests": true
+  },
+  "gomod": {
+    "packageRules": [
+      {
+        "matchDepTypes": ["indirect"],
+        "enabled": false
+      }
+    ]
+  },
+  "vulnerabilityAlerts": {
+    "enabled": true
+  },
+  "osvVulnerabilityAlerts": true,
+  "packageRules": [
+    {
+      "groupName": "containerfile images ({{{baseBranch}}})",
+      "matchManagers": ["dockerfile"]
+    }
+  ]
 }
