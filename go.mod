@@ -34,7 +34,7 @@ require (
 	golang.org/x/tools v0.36.0 // indirect
 	kubevirt.io/api v1.1.1 // indirect
 	kubevirt.io/containerized-data-importer-api v1.59.0 // indirect
-	kubevirt.io/controller-lifecycle-operator-sdk/api v0.0.0-20220329064328-f3cc58c6ed90 // indirect
+	kubevirt.io/controller-lifecycle-operator-sdk/api v0.2.4 // indirect
 )
 
 require (
