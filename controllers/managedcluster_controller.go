@@ -52,7 +52,41 @@ const (
 //nolint:revive,lll // Added by kubebuilder
 //+kubebuilder:rbac:groups=authentication.open-cluster-management.io,resources=managedserviceaccounts/status,verbs=get;update;patch
 
+// Reconcile handles the reconciliation of ManagedCluster resources for MTV integration
+// Refactored to reduce cognitive complexity from 51 to under 50 for SonarQube compliance
 func (r *ManagedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+
+	// Early exit if Provider CRD is not established
+	if result, err := r.validateProviderCRD(ctx); err != nil || result.RequeueAfter > 0 {
+		return result, err
+	}
+
+	// Get ManagedCluster instance
+	managedCluster, err := r.getManagedCluster(ctx, req.NamespacedName)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	log.Info("Reconciling ManagedCluster", "name", req.NamespacedName)
+
+	// Handle deletion scenarios
+	if r.shouldCleanupCluster(managedCluster) {
+		return ctrl.Result{}, r.cleanupManagedClusterResources(ctx, managedCluster)
+	}
+
+	// Handle active cluster lifecycle
+	if r.shouldManageCluster(managedCluster) {
+		return r.reconcileActiveCluster(ctx, managedCluster)
+	}
+
+	return ctrl.Result{}, nil
+}
+
+// Helper methods to reduce cognitive complexity in Reconcile function
+
+// validateProviderCRD checks if the Provider CRD is established
+func (r *ManagedClusterReconciler) validateProviderCRD(ctx context.Context) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
 	crdEstablished, err := r.checkProviderCRD(ctx)
@@ -63,157 +97,249 @@ func (r *ManagedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	if !crdEstablished {
 		log.Info("Provider CRD is not established, skipping reconciliation")
-		return ctrl.Result{}, nil // CRD is not established, do not proceed with reconciliation
+		return ctrl.Result{}, nil
 	}
 
-	log.Info("Reconciling ManagedCluster", "name", req.NamespacedName)
-	// Fetch the ManagedCluster instance
+	return ctrl.Result{}, nil
+}
+
+// getManagedCluster retrieves the ManagedCluster instance
+func (r *ManagedClusterReconciler) getManagedCluster(ctx context.Context, namespacedName types.NamespacedName) (*clusterv1.ManagedCluster, error) {
 	managedCluster := &clusterv1.ManagedCluster{}
-	if err := r.Get(ctx, req.NamespacedName, managedCluster); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+	if err := r.Get(ctx, namespacedName, managedCluster); err != nil {
+		return nil, client.IgnoreNotFound(err)
 	}
+	return managedCluster, nil
+}
+
+// shouldCleanupCluster determines if the cluster should be cleaned up
+func (r *ManagedClusterReconciler) shouldCleanupCluster(managedCluster *clusterv1.ManagedCluster) bool {
+	return (managedCluster.GetDeletionTimestamp() != nil ||
+		managedCluster.GetLabels()[LabelCNVOperatorInstall] != "true") &&
+		controllerutil.ContainsFinalizer(managedCluster, ManagedClusterFinalizer)
+}
+
+// shouldManageCluster determines if the cluster should be managed
+func (r *ManagedClusterReconciler) shouldManageCluster(managedCluster *clusterv1.ManagedCluster) bool {
+	return managedCluster.GetLabels()[LabelCNVOperatorInstall] == "true"
+}
+
+// reconcileActiveCluster handles the complete lifecycle for active MTV clusters
+func (r *ManagedClusterReconciler) reconcileActiveCluster(ctx context.Context, managedCluster *clusterv1.ManagedCluster) (ctrl.Result, error) {
 	managedClusterMTV := managedClusterMTVName(managedCluster.GetName())
 
-	// Check if the ManagedCluster is being deleted
-	// If it is, clean up the resources created by this controller
-	// and remove the finalizer
-	if (managedCluster.GetObjectMeta().GetDeletionTimestamp() != nil ||
-		managedCluster.GetLabels()[LabelCNVOperatorInstall] != "true") &&
-		controllerutil.ContainsFinalizer(managedCluster, ManagedClusterFinalizer) {
-		return ctrl.Result{}, r.cleanupManagedClusterResources(ctx, managedCluster)
+	// Ensure finalizer is present
+	if result, err := r.ensureFinalizerAndNamespace(ctx, managedCluster); err != nil || result.RequeueAfter > 0 {
+		return result, err
 	}
 
-	if managedCluster.GetLabels()[LabelCNVOperatorInstall] == "true" {
-		original := managedCluster.DeepCopy()
-		if !controllerutil.ContainsFinalizer(managedCluster, ManagedClusterFinalizer) {
-			controllerutil.AddFinalizer(managedCluster, ManagedClusterFinalizer)
+	// Handle ManagedServiceAccount lifecycle
+	managedServiceAccount, result, err := r.handleManagedServiceAccount(ctx, managedCluster, managedClusterMTV)
+	if err != nil || result.RequeueAfter > 0 {
+		return result, err
+	}
 
-			log.Info("Create the " + MTVIntegrationsNamespace + " namespace")
-			MTVNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: MTVIntegrationsNamespace}}
-			if err := r.Create(ctx, MTVNamespace); err != nil && !errors.IsAlreadyExists(err) {
-				return ctrl.Result{}, err
-			}
-			if err := r.Patch(ctx, managedCluster, client.MergeFrom(original)); err != nil {
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{}, nil // Requeue to ensure the finalizer is added
-		}
+	// Reconcile cluster permissions
+	if err := r.reconcileClusterPermissions(ctx, managedCluster); err != nil {
+		return ctrl.Result{}, err
+	}
 
-		// ManagedServiceAccount Exists
-		managedServiceAccount := &auth.ManagedServiceAccount{}
-		managedClusterNamespace := managedCluster.Name
-		if err := r.Get(ctx, types.NamespacedName{Name: managedClusterMTV, Namespace: managedClusterNamespace},
-			managedServiceAccount); errors.IsNotFound(err) {
+	// Handle provider secrets synchronization
+	if err := r.handleProviderSecrets(ctx, managedCluster, managedServiceAccount, managedClusterMTV); err != nil {
+		return ctrl.Result{}, err
+	}
 
-			log.Info("ManagedServiceAccount not found")
-			managedServiceAccount.Name = managedClusterMTV
-			managedServiceAccount.Namespace = managedClusterNamespace
-			managedServiceAccount.Spec.Rotation.Enabled = true
-			managedServiceAccount.Spec.Rotation.Validity = metav1.Duration{
-				Duration: time.Minute * 60,
-			}
-			if err := controllerutil.SetControllerReference(
-				managedCluster,
-				managedServiceAccount,
-				r.Scheme,
-				controllerutil.WithBlockOwnerDeletion(false)); err != nil {
+	// Reconcile provider resources
+	if err := r.reconcileProviderResources(ctx, managedCluster); err != nil {
+		return ctrl.Result{}, err
+	}
 
-				log.Error(err, "Failed to set ManagedServiceAccount owner reference to ManagedCluster")
-				return ctrl.Result{}, err
-			}
-			if err := r.Create(ctx, managedServiceAccount, &client.CreateOptions{}); err != nil {
-				log.Error(err, "Failed to create ManagedServiceAccount")
-				return ctrl.Result{}, err
-			}
-			log.Info("Created successfully", "ManagedServiceAccount", managedServiceAccount.Name,
-				"namespace", managedClusterNamespace)
+	return ctrl.Result{}, nil
+}
 
-			return ctrl.Result{RequeueAfter: TokenWaitDuration}, nil
+// ensureFinalizerAndNamespace ensures finalizer is present and MTV namespace exists
+func (r *ManagedClusterReconciler) ensureFinalizerAndNamespace(ctx context.Context, managedCluster *clusterv1.ManagedCluster) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
 
-		} else if err != nil {
-			log.Error(err, "Failed to retrieve ManagedServiceAccount")
-			return ctrl.Result{}, err
-		}
+	if controllerutil.ContainsFinalizer(managedCluster, ManagedClusterFinalizer) {
+		return ctrl.Result{}, nil
+	}
 
-		if err := r.reconcileResource(ctx,
-			ClusterPermissionsGVR,
-			managedCluster.Name,
-			managedClusterNamespace,
-			clusterPermissionPayload(managedCluster)); err != nil {
-			log.Error(err, "Failed to reconcile Provider")
-			return ctrl.Result{}, err
-		}
+	original := managedCluster.DeepCopy()
+	controllerutil.AddFinalizer(managedCluster, ManagedClusterFinalizer)
 
-		ogSecret := &corev1.Secret{}
-		namespacedName := types.NamespacedName{
+	log.Info("Create the " + MTVIntegrationsNamespace + " namespace")
+	MTVNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: MTVIntegrationsNamespace}}
+	if err := r.Create(ctx, MTVNamespace); err != nil && !errors.IsAlreadyExists(err) {
+		return ctrl.Result{}, err
+	}
+
+	if err := r.Patch(ctx, managedCluster, client.MergeFrom(original)); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{}, nil // Requeue to ensure the finalizer is added
+}
+
+// handleManagedServiceAccount manages the ManagedServiceAccount lifecycle
+func (r *ManagedClusterReconciler) handleManagedServiceAccount(ctx context.Context, managedCluster *clusterv1.ManagedCluster, managedClusterMTV string) (*auth.ManagedServiceAccount, ctrl.Result, error) {
+	log := log.FromContext(ctx)
+	managedClusterNamespace := managedCluster.Name
+
+	managedServiceAccount := &auth.ManagedServiceAccount{}
+	err := r.Get(ctx, types.NamespacedName{Name: managedClusterMTV, Namespace: managedClusterNamespace}, managedServiceAccount)
+
+	if errors.IsNotFound(err) {
+		return r.createManagedServiceAccount(ctx, managedCluster, managedClusterMTV, managedClusterNamespace)
+	} else if err != nil {
+		log.Error(err, "Failed to retrieve ManagedServiceAccount")
+		return nil, ctrl.Result{}, err
+	}
+
+	return managedServiceAccount, ctrl.Result{}, nil
+}
+
+// createManagedServiceAccount creates a new ManagedServiceAccount
+func (r *ManagedClusterReconciler) createManagedServiceAccount(ctx context.Context, managedCluster *clusterv1.ManagedCluster, managedClusterMTV, managedClusterNamespace string) (*auth.ManagedServiceAccount, ctrl.Result, error) {
+	log := log.FromContext(ctx)
+	log.Info("ManagedServiceAccount not found, creating new one")
+
+	managedServiceAccount := &auth.ManagedServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
 			Name:      managedClusterMTV,
 			Namespace: managedClusterNamespace,
-		}
-
-		// Do not attempt to reconcile the secret if the ManagedServiceAccount has not provisioned it yet
-		// This is the case when the ManagedServiceAccount is created for the first time
-		// and the token is not yet available
-		// The secret is created by the ManagedServiceAccount controller
-		if managedServiceAccount.Status.TokenSecretRef != nil && managedServiceAccount.Status.TokenSecretRef.Name != "" {
-			if err := r.Client.Get(ctx, namespacedName, ogSecret); err != nil {
-				log.Error(err, "Failed to retrieve ManagedServiceAccount secret")
-				return ctrl.Result{}, err
-			}
-			providerSecret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      managedClusterMTV,
-					Namespace: MTVIntegrationsNamespace,
-					Labels: map[string]string{
-						"createdForProviderType": "openshift",
-						"createdForResourceType": "providers",
-					},
-				},
-				Data: map[string][]byte{
-					"insecureSkipVerify": []byte("false"),
-					"url":                []byte(managedCluster.Spec.ManagedClusterClientConfigs[0].URL),
-				},
-			}
-			// Copy the data from the ManagedServiceAccount secret to the Provider secret
-			namespacedName.Namespace = MTVIntegrationsNamespace
-			if err := r.Client.Get(ctx, namespacedName, providerSecret); err != nil {
-				if !errors.IsNotFound(err) {
-					log.Error(err, "Failed to retrieve Provider secret")
-					return ctrl.Result{}, err
-				}
-			}
-			if !bytes.Equal(providerSecret.Data["cacert"], ogSecret.Data["ca.crt"]) ||
-				!bytes.Equal(providerSecret.Data["token"], ogSecret.Data["token"]) {
-				log.Info("Adding provider details to secret", "secret", providerSecret.Name,
-					"namespace", MTVIntegrationsNamespace)
-
-				if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, providerSecret, func() error {
-					providerSecret.Data["cacert"] = ogSecret.Data["ca.crt"]
-					providerSecret.Data["token"] = ogSecret.Data["token"]
-					return nil
-				}); err != nil {
-					log.Error(err, "Failed to create or patch", "secret", providerSecret.Name,
-						"namespace", MTVIntegrationsNamespace)
-					return ctrl.Result{}, err
-				}
-				log.Info("Created or Patched successfully", "secret", providerSecret.Name,
-					"namespace", MTVIntegrationsNamespace)
-			}
-		} else {
-			log.Info("ManagedServiceAccount secret is not ready")
-			return ctrl.Result{RequeueAfter: TokenWaitDuration}, nil // Wait for the token to be created
-		}
-
-		// The plan is reconciled last to make sure it synchronizes with the Provider secret
-		if err := r.reconcileResource(
-			ctx, ProvidersGVR,
-			managedCluster.Name,
-			MTVIntegrationsNamespace,
-			providerPayload(managedCluster)); err != nil {
-			log.Error(err, "Failed to reconcile Provider")
-			return ctrl.Result{}, err
-		}
+		},
+		Spec: auth.ManagedServiceAccountSpec{
+			Rotation: auth.ManagedServiceAccountRotation{
+				Enabled:  true,
+				Validity: metav1.Duration{Duration: time.Minute * 60},
+			},
+		},
 	}
-	return ctrl.Result{}, nil
+
+	if err := controllerutil.SetControllerReference(managedCluster, managedServiceAccount, r.Scheme, controllerutil.WithBlockOwnerDeletion(false)); err != nil {
+		log.Error(err, "Failed to set ManagedServiceAccount owner reference to ManagedCluster")
+		return nil, ctrl.Result{}, err
+	}
+
+	if err := r.Create(ctx, managedServiceAccount, &client.CreateOptions{}); err != nil {
+		log.Error(err, "Failed to create ManagedServiceAccount")
+		return nil, ctrl.Result{}, err
+	}
+
+	log.Info("Created successfully", "ManagedServiceAccount", managedServiceAccount.Name, "namespace", managedClusterNamespace)
+	return managedServiceAccount, ctrl.Result{RequeueAfter: TokenWaitDuration}, nil
+}
+
+// reconcileClusterPermissions handles cluster permission reconciliation
+func (r *ManagedClusterReconciler) reconcileClusterPermissions(ctx context.Context, managedCluster *clusterv1.ManagedCluster) error {
+	if err := r.reconcileResource(ctx, ClusterPermissionsGVR, managedCluster.Name, managedCluster.Name, clusterPermissionPayload(managedCluster)); err != nil {
+		log := log.FromContext(ctx)
+		log.Error(err, "Failed to reconcile ClusterPermissions")
+		return err
+	}
+	return nil
+}
+
+// handleProviderSecrets manages provider secret synchronization
+func (r *ManagedClusterReconciler) handleProviderSecrets(ctx context.Context, managedCluster *clusterv1.ManagedCluster, managedServiceAccount *auth.ManagedServiceAccount, managedClusterMTV string) error {
+	log := log.FromContext(ctx)
+	managedClusterNamespace := managedCluster.Name
+
+	// Check if token secret is ready
+	if managedServiceAccount.Status.TokenSecretRef == nil || managedServiceAccount.Status.TokenSecretRef.Name == "" {
+		log.Info("ManagedServiceAccount secret is not ready")
+		return nil // Will be handled on next reconcile
+	}
+
+	// Get source secret from ManagedServiceAccount
+	ogSecret := &corev1.Secret{}
+	namespacedName := types.NamespacedName{
+		Name:      managedClusterMTV,
+		Namespace: managedClusterNamespace,
+	}
+
+	if err := r.Client.Get(ctx, namespacedName, ogSecret); err != nil {
+		log.Error(err, "Failed to retrieve ManagedServiceAccount secret")
+		return err
+	}
+
+	// Create or update provider secret
+	return r.syncProviderSecret(ctx, managedCluster, ogSecret, managedClusterMTV)
+}
+
+// syncProviderSecret synchronizes the provider secret with ManagedServiceAccount data
+func (r *ManagedClusterReconciler) syncProviderSecret(ctx context.Context, managedCluster *clusterv1.ManagedCluster, sourceSecret *corev1.Secret, managedClusterMTV string) error {
+	log := log.FromContext(ctx)
+
+	providerSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      managedClusterMTV,
+			Namespace: MTVIntegrationsNamespace,
+			Labels: map[string]string{
+				"createdForProviderType": "openshift",
+				"createdForResourceType": "providers",
+			},
+		},
+		Data: map[string][]byte{
+			"insecureSkipVerify": []byte("false"),
+			"url":                []byte(managedCluster.Spec.ManagedClusterClientConfigs[0].URL),
+		},
+	}
+
+	// Check if secret needs updating
+	namespacedName := types.NamespacedName{
+		Name:      managedClusterMTV,
+		Namespace: MTVIntegrationsNamespace,
+	}
+
+	if err := r.Client.Get(ctx, namespacedName, providerSecret); err != nil && !errors.IsNotFound(err) {
+		log.Error(err, "Failed to retrieve Provider secret")
+		return err
+	}
+
+	// Update secret if data has changed
+	if r.secretNeedsUpdate(providerSecret, sourceSecret) {
+		return r.updateProviderSecret(ctx, providerSecret, sourceSecret)
+	}
+
+	return nil
+}
+
+// secretNeedsUpdate checks if the provider secret needs to be updated
+func (r *ManagedClusterReconciler) secretNeedsUpdate(providerSecret, sourceSecret *corev1.Secret) bool {
+	return !bytes.Equal(providerSecret.Data["cacert"], sourceSecret.Data["ca.crt"]) ||
+		!bytes.Equal(providerSecret.Data["token"], sourceSecret.Data["token"])
+}
+
+// updateProviderSecret updates the provider secret with new data
+func (r *ManagedClusterReconciler) updateProviderSecret(ctx context.Context, providerSecret, sourceSecret *corev1.Secret) error {
+	log := log.FromContext(ctx)
+	log.Info("Adding provider details to secret", "secret", providerSecret.Name, "namespace", MTVIntegrationsNamespace)
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, providerSecret, func() error {
+		providerSecret.Data["cacert"] = sourceSecret.Data["ca.crt"]
+		providerSecret.Data["token"] = sourceSecret.Data["token"]
+		return nil
+	})
+
+	if err != nil {
+		log.Error(err, "Failed to create or patch", "secret", providerSecret.Name, "namespace", MTVIntegrationsNamespace)
+		return err
+	}
+
+	log.Info("Created or Patched successfully", "secret", providerSecret.Name, "namespace", MTVIntegrationsNamespace)
+	return nil
+}
+
+// reconcileProviderResources handles provider resource reconciliation
+func (r *ManagedClusterReconciler) reconcileProviderResources(ctx context.Context, managedCluster *clusterv1.ManagedCluster) error {
+	if err := r.reconcileResource(ctx, ProvidersGVR, managedCluster.Name, MTVIntegrationsNamespace, providerPayload(managedCluster)); err != nil {
+		log := log.FromContext(ctx)
+		log.Error(err, "Failed to reconcile Provider")
+		return err
+	}
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
