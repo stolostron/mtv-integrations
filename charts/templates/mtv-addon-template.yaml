@@ -168,3 +168,8 @@ spec:
                 nodeSelector:
                 {{- toYaml . | nindent 18 }}
                 {{- end }}
+        - apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: mtv-integrations
+          spec: {}
