@@ -112,9 +112,15 @@ func (r *ManagedClusterReconciler) reconcileActiveCluster(
 ) (ctrl.Result, error) {
 	managedClusterMTV := managedClusterMTVName(managedCluster.GetName())
 
-	// Ensure finalizer is present
-	if result, err := r.ensureFinalizerAndNamespace(ctx, managedCluster); err != nil || result.RequeueAfter > 0 {
-		return result, err
+	// Ensure finalizer is present - if it wasn't there, we need to requeue
+	finalizerWasAdded := !controllerutil.ContainsFinalizer(managedCluster, ManagedClusterFinalizer)
+	if err := r.ensureFinalizerAndNamespace(ctx, managedCluster); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// If finalizer was just added, requeue to ensure it's processed
+	if finalizerWasAdded {
+		return ctrl.Result{}, nil // Requeue to ensure the finalizer is added
 	}
 
 	// Handle ManagedServiceAccount lifecycle
@@ -145,12 +151,13 @@ func (r *ManagedClusterReconciler) reconcileActiveCluster(
 func (r *ManagedClusterReconciler) ensureFinalizerAndNamespace(
 	ctx context.Context,
 	managedCluster *clusterv1.ManagedCluster,
-) (ctrl.Result, error) {
-	log := log.FromContext(ctx)
-
+) error {
 	if controllerutil.ContainsFinalizer(managedCluster, ManagedClusterFinalizer) {
-		return ctrl.Result{}, nil
+		return nil
 	}
+
+	log := log.FromContext(ctx)
+	log.Info("Adding finalizer and ensuring MTV namespace")
 
 	original := managedCluster.DeepCopy()
 	controllerutil.AddFinalizer(managedCluster, ManagedClusterFinalizer)
@@ -158,14 +165,10 @@ func (r *ManagedClusterReconciler) ensureFinalizerAndNamespace(
 	log.Info("Create the " + MTVIntegrationsNamespace + " namespace")
 	MTVNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: MTVIntegrationsNamespace}}
 	if err := r.Create(ctx, MTVNamespace); err != nil && !errors.IsAlreadyExists(err) {
-		return ctrl.Result{}, err
+		return err
 	}
 
-	if err := r.Patch(ctx, managedCluster, client.MergeFrom(original)); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	return ctrl.Result{}, nil // Requeue to ensure the finalizer is added
+	return r.Patch(ctx, managedCluster, client.MergeFrom(original))
 }
 
 // handleManagedServiceAccount manages the ManagedServiceAccount lifecycle
