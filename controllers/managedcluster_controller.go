@@ -57,17 +57,25 @@ const (
 func (r *ManagedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
-	// Early exit if Provider CRD is not established
-	if result, err := r.validateProviderCRD(ctx); err != nil || result.RequeueAfter > 0 {
-		return result, err
-	}
-
-	// Get ManagedCluster instance
-	managedCluster, err := r.getManagedCluster(ctx, req.NamespacedName)
+	// Early exit if Provider CRD is not established - do not log "Reconciling" in this case
+	crdEstablished, err := r.checkProviderCRD(ctx)
 	if err != nil {
-		return ctrl.Result{}, err
+		log.Error(err, "Failed to check if Provider CRD is established")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 	}
 
+	if !crdEstablished {
+		log.Info("Provider CRD is not established, skipping reconciliation")
+		return ctrl.Result{}, nil // CRD is not established, do not proceed with reconciliation
+	}
+
+	// Fetch the ManagedCluster instance
+	managedCluster := &clusterv1.ManagedCluster{}
+	if err := r.Get(ctx, req.NamespacedName, managedCluster); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Only log "Reconciling" after we know we will actually proceed
 	log.Info("Reconciling ManagedCluster", "name", req.NamespacedName)
 
 	// Handle deletion scenarios
@@ -252,10 +260,10 @@ func (r *ManagedClusterReconciler) handleProviderSecrets(ctx context.Context, ma
 		return nil // Will be handled on next reconcile
 	}
 
-	// Get source secret from ManagedServiceAccount
+	// Get source secret from ManagedServiceAccount using the correct secret name from TokenSecretRef
 	ogSecret := &corev1.Secret{}
 	namespacedName := types.NamespacedName{
-		Name:      managedClusterMTV,
+		Name:      managedServiceAccount.Status.TokenSecretRef.Name, // Use the actual token secret name
 		Namespace: managedClusterNamespace,
 	}
 
