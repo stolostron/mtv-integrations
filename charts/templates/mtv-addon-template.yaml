@@ -22,15 +22,10 @@ spec:
               targetNamespaces:
                   - openshift-mtv
             subscription:
-              channel: release-v2.8
+              channel: release-v2.10
               name: mtv-operator
               namespace: openshift-mtv
             upgradeApproval: Automatic
-            removalBehavior:                  # This only works if the complianceType: mustnothave
-              clusterServiceVersions: Delete
-              customResourceDefinitions: Delete
-              operatorGroups: DeleteIfUnused
-              subscriptions: Delete
         - apiVersion: forklift.konveyor.io/v1beta1
           kind: ForkliftController
           metadata:

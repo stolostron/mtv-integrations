@@ -23,7 +23,7 @@ This repository also contains two addons for OCM that enable container native vi
 ### MTV (Migration Toolkit for Virtualization) Addon
 
 **Quick summary:**
-- **MTV Addon:** Installs the Migration Toolkit for Virtualization operator in the `openshift-mtv` namespace on the hub, enabling VM migration features. It uses the `release-v2.8` channel and enables UI plugin, validation, and volume populator features.
+- **MTV Addon:** Installs the Migration Toolkit for Virtualization operator in the `openshift-mtv` namespace on the hub, enabling VM migration features. It uses the `release-v2.10` channel and enables UI plugin, validation, and volume populator features.
 - **CNV Addon:** Installs the KubeVirt Hyperconverged operator in the `openshift-cnv` namespace, providing virtualization capabilities. It configures optimized HyperConverged settings and uses OperatorPolicy for lifecycle management.
 
 Both addons require ACM and the Policy addon. The CNV Addon targets clusters labeled with `acm/cnv-operator-install: "true"`.

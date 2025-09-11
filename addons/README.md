@@ -26,7 +26,7 @@ The MTV Addon deploys the Migration Toolkit for Virtualization operator, which e
 
 ### Configuration
 The addon is configured to:
-- Use the `release-v2.8` channel for operator updates
+- Use the `release-v2.10` channel for operator updates
 - Deploy in the `openshift-mtv` namespace
 - Enable UI plugin, validation, and volume populator features
 
