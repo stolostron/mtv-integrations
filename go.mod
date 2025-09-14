@@ -11,8 +11,8 @@ replace github.com/konveyor/forklift-controller => github.com/kubev2v/forklift v
 
 require (
 	github.com/konveyor/forklift-controller v0.0.0
-	github.com/onsi/ginkgo/v2 v2.25.1
-	github.com/onsi/gomega v1.38.1
+	github.com/onsi/ginkgo/v2 v2.25.3
+	github.com/onsi/gomega v1.38.2
 	github.com/stretchr/testify v1.11.0
 	k8s.io/apimachinery v0.33.4
 	k8s.io/client-go v0.33.4
