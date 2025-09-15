@@ -33,7 +33,8 @@ and Advanced Cluster Management (ACM), enabling VM migration across clusters via
 controller, plan webhook, and ACM AddOns." \
     summary="Integrates MTV with ACM to enable secure, policy-driven VM migration across clusters." \
     io.k8s.display-name="Red Hat Advanced Cluster Management MTV Integrations" \
-    io.openshift.tags="acm mtv migration virtualization ocm"
+    io.openshift.tags="acm mtv migration virtualization ocm" \
+    url="https://github.com/stolostron/mtv-integrations"
 WORKDIR /
 COPY --from=builder /workspace/manager .
 
