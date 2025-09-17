@@ -111,6 +111,7 @@ spec:
               allowApplicationAwareClusterResourceQuota: false
               vmiCalcConfigName: DedicatedVirtualResources
             featureGates:
+              decentralizedLiveMigration: true
               deployTektonTaskResources: false
               enableCommonBootImageImport: true
               withHostPassthroughCPU: false
