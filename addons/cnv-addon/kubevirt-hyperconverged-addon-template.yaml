@@ -95,6 +95,7 @@ spec:
               parallelMigrationsPerCluster: 5
               parallelOutboundMigrationsPerNode: 2
               progressTimeout: 150
+              "{{LIVE_NETWORK_KEY}}": "{{LIVE_NETWORK_VALUE}}"
             certConfig:
               ca:
                 duration: 48h0m0s
