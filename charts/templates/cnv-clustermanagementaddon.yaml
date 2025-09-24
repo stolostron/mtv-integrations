@@ -13,6 +13,11 @@ spec:
       resource: addontemplates
       defaultConfig:
         name: kubevirt-hyperconverged-operator
+    - group: addon.open-cluster-management.io
+      resource: addondeploymentconfigs
+      defaultConfig:
+        name: cnv-config
+        namespace: {{ .Values.global.namespace }}
   installStrategy:
     type: Placements
     placements:
