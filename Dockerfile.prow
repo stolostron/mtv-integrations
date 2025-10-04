@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM registry.ci.openshift.org/stolostron/builder:go1.24-linux@sha256:204fa729fed954ce26ce1de597ecaaa62c00ada6ab6ba58fd83509cb0efa6c87 AS builder
+FROM registry.ci.openshift.org/stolostron/builder:go1.24-linux@sha256:75493a7acaf09976cb22cc4ac510af29995afd5a33a259b33787b47000a5c4cd AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
