@@ -118,4 +118,4 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace open-cluster-management.io/cluster-permission => github.com/open-cluster-management-io/cluster-permission v0.16.1
+replace open-cluster-management.io/cluster-permission => github.com/open-cluster-management-io/cluster-permission v0.16.2
