@@ -18,7 +18,7 @@ require (
 	k8s.io/client-go v0.34.1
 	open-cluster-management.io/api v0.16.2
 	open-cluster-management.io/managed-serviceaccount v0.8.0
-	sigs.k8s.io/controller-runtime v0.22.1
+	sigs.k8s.io/controller-runtime v0.22.2
 )
 
 require (
