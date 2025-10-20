@@ -13,10 +13,11 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	dynFake "k8s.io/client-go/dynamic/fake"
+	"k8s.io/client-go/dynamic/fake"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	auth "open-cluster-management.io/managed-serviceaccount/apis/authentication/v1beta1"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	ctrl "sigs.k8s.io/controller-runtime"
+	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -49,9 +50,9 @@ func TestReconcile_AddsFinalizer(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().WithScheme(scheme).
+	k8sClient := clientfake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(providerCrd, managedCluster).Build()
-	dynClient := dynFake.NewSimpleDynamicClient(scheme)
+	dynClient := fake.NewSimpleDynamicClient(scheme)
 
 	reconciler := &ManagedClusterReconciler{
 		Client:        k8sClient,
@@ -95,8 +96,8 @@ func TestReconcile_CreatesManagedServiceAccount(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(providerCrd, managedCluster).Build()
-	dynClient := dynFake.NewSimpleDynamicClient(scheme)
+	k8sClient := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(providerCrd, managedCluster).Build()
+	dynClient := fake.NewSimpleDynamicClient(scheme)
 
 	reconciler := &ManagedClusterReconciler{
 		Client:        k8sClient,
@@ -136,8 +137,8 @@ func TestReconcile_CreatesClusterPermission(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(providerCrd, managedCluster).Build()
-	dynClient := dynFake.NewSimpleDynamicClient(scheme)
+	k8sClient := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(providerCrd, managedCluster).Build()
+	dynClient := fake.NewSimpleDynamicClient(scheme)
 
 	reconciler := &ManagedClusterReconciler{
 		Client:        k8sClient,
@@ -210,8 +211,8 @@ func TestReconcile_CreatesProvider(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(providerCrd, managedCluster, secret).Build()
-	dynClient := dynFake.NewSimpleDynamicClient(scheme)
+	k8sClient := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(providerCrd, managedCluster, secret).Build()
+	dynClient := fake.NewSimpleDynamicClient(scheme)
 
 	reconciler := &ManagedClusterReconciler{
 		Client:        k8sClient,
@@ -276,8 +277,8 @@ func TestCleanupManagedClusterResources_RemovesFinalizer(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(providerCrd, managedCluster).Build()
-	dynClient := dynFake.NewSimpleDynamicClient(scheme)
+	k8sClient := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(providerCrd, managedCluster).Build()
+	dynClient := fake.NewSimpleDynamicClient(scheme)
 
 	reconciler := &ManagedClusterReconciler{
 		Client:        k8sClient,
@@ -310,7 +311,7 @@ func TestManagedClusterReconciler_checkProviderCRD(t *testing.T) {
 	}
 
 	t.Run("CRD does not exist", func(t *testing.T) {
-		client := fake.NewClientBuilder().WithScheme(scheme).Build()
+		client := clientfake.NewClientBuilder().WithScheme(scheme).Build()
 		r := &ManagedClusterReconciler{Client: client, Scheme: scheme}
 		ok, err := r.checkProviderCRD(context.Background())
 		require.NoError(t, err)
@@ -318,7 +319,7 @@ func TestManagedClusterReconciler_checkProviderCRD(t *testing.T) {
 	})
 
 	t.Run("CRD exists but not established", func(t *testing.T) {
-		client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(crd).Build()
+		client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(crd).Build()
 		r := &ManagedClusterReconciler{Client: client, Scheme: scheme}
 		ok, err := r.checkProviderCRD(context.Background())
 		require.NoError(t, err)
@@ -326,10 +327,195 @@ func TestManagedClusterReconciler_checkProviderCRD(t *testing.T) {
 	})
 
 	t.Run("CRD exists and is established", func(t *testing.T) {
-		client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(providerCrd).Build()
+		client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(providerCrd).Build()
 		r := &ManagedClusterReconciler{Client: client, Scheme: scheme}
 		ok, err := r.checkProviderCRD(context.Background())
 		require.NoError(t, err)
 		require.True(t, ok, "Should return true when CRD is established")
 	})
+}
+
+// Additional tests to increase coverage
+
+func TestReconcile_SkipsWhenCRDNotEstablished(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clusterv1.AddToScheme(scheme)
+	_ = apiextensionsv1.AddToScheme(scheme)
+
+	// Create a CRD that is not established
+	notEstablishedCrd := &apiextensionsv1.CustomResourceDefinition{
+		ObjectMeta: metav1.ObjectMeta{Name: ProviderCRDName},
+		Status: apiextensionsv1.CustomResourceDefinitionStatus{
+			Conditions: []apiextensionsv1.CustomResourceDefinitionCondition{
+				{
+					Type:   apiextensionsv1.Established,
+					Status: apiextensionsv1.ConditionFalse,
+				},
+			},
+		},
+	}
+
+	managedCluster := &clusterv1.ManagedCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "test-cluster",
+			Labels: map[string]string{LabelCNVOperatorInstall: "true"},
+		},
+	}
+
+	k8sClient := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(notEstablishedCrd, managedCluster).Build()
+	dynClient := fake.NewSimpleDynamicClient(scheme)
+
+	reconciler := &ManagedClusterReconciler{
+		Client:        k8sClient,
+		Scheme:        scheme,
+		DynamicClient: dynClient,
+	}
+
+	result, err := reconciler.Reconcile(context.TODO(),
+		reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-cluster"}})
+
+	assert.NoError(t, err)
+	assert.Equal(t, ctrl.Result{}, result)
+}
+
+func TestReconcile_HandlesClusterWithoutLabel(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clusterv1.AddToScheme(scheme)
+	_ = apiextensionsv1.AddToScheme(scheme)
+
+	managedCluster := &clusterv1.ManagedCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-cluster",
+			// No CNV operator install label
+		},
+	}
+
+	k8sClient := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(providerCrd, managedCluster).Build()
+	dynClient := fake.NewSimpleDynamicClient(scheme)
+
+	reconciler := &ManagedClusterReconciler{
+		Client:        k8sClient,
+		Scheme:        scheme,
+		DynamicClient: dynClient,
+	}
+
+	result, err := reconciler.Reconcile(context.TODO(),
+		reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-cluster"}})
+
+	assert.NoError(t, err)
+	assert.Equal(t, ctrl.Result{}, result)
+}
+
+func TestReconcile_ErrorHandling(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clusterv1.AddToScheme(scheme)
+	_ = apiextensionsv1.AddToScheme(scheme)
+
+	// Test with non-existent cluster
+	k8sClient := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(providerCrd).Build()
+	dynClient := fake.NewSimpleDynamicClient(scheme)
+
+	reconciler := &ManagedClusterReconciler{
+		Client:        k8sClient,
+		Scheme:        scheme,
+		DynamicClient: dynClient,
+	}
+
+	result, err := reconciler.Reconcile(context.TODO(),
+		reconcile.Request{NamespacedName: types.NamespacedName{Name: "non-existent-cluster"}})
+
+	assert.NoError(t, err) // Should not error on NotFound
+	assert.Equal(t, ctrl.Result{}, result)
+}
+
+func TestHelperMethods(t *testing.T) {
+	// Test shouldCleanupCluster
+	t.Run("shouldCleanupCluster", func(t *testing.T) {
+		reconciler := &ManagedClusterReconciler{}
+
+		// Test with deletion timestamp
+		clusterWithDeletion := &clusterv1.ManagedCluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              "test",
+				DeletionTimestamp: &metav1.Time{Time: time.Now()},
+				Finalizers:        []string{ManagedClusterFinalizer},
+			},
+		}
+		assert.True(t, reconciler.shouldCleanupCluster(clusterWithDeletion))
+
+		// Test without label but with finalizer
+		clusterWithoutLabel := &clusterv1.ManagedCluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       "test",
+				Finalizers: []string{ManagedClusterFinalizer},
+			},
+		}
+		assert.True(t, reconciler.shouldCleanupCluster(clusterWithoutLabel))
+
+		// Test with label and no finalizer
+		clusterWithLabel := &clusterv1.ManagedCluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   "test",
+				Labels: map[string]string{LabelCNVOperatorInstall: "true"},
+			},
+		}
+		assert.False(t, reconciler.shouldCleanupCluster(clusterWithLabel))
+	})
+
+	// Test shouldManageCluster
+	t.Run("shouldManageCluster", func(t *testing.T) {
+		reconciler := &ManagedClusterReconciler{}
+
+		clusterWithLabel := &clusterv1.ManagedCluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels: map[string]string{LabelCNVOperatorInstall: "true"},
+			},
+		}
+		assert.True(t, reconciler.shouldManageCluster(clusterWithLabel))
+
+		clusterWithoutLabel := &clusterv1.ManagedCluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels: map[string]string{},
+			},
+		}
+		assert.False(t, reconciler.shouldManageCluster(clusterWithoutLabel))
+	})
+}
+
+func TestSecretNeedsUpdate(t *testing.T) {
+	reconciler := &ManagedClusterReconciler{}
+
+	// Test when secrets are different
+	secret1 := &corev1.Secret{
+		Data: map[string][]byte{
+			"cacert": []byte("cert1"),
+			"token":  []byte("token1"),
+		},
+	}
+
+	secret2 := &corev1.Secret{
+		Data: map[string][]byte{
+			"ca.crt": []byte("cert2"),
+			"token":  []byte("token2"),
+		},
+	}
+
+	assert.True(t, reconciler.secretNeedsUpdate(secret1, secret2))
+
+	// Test when secrets are the same
+	secret3 := &corev1.Secret{
+		Data: map[string][]byte{
+			"cacert": []byte("cert1"),
+			"token":  []byte("token1"),
+		},
+	}
+
+	secret4 := &corev1.Secret{
+		Data: map[string][]byte{
+			"ca.crt": []byte("cert1"),
+			"token":  []byte("token1"),
+		},
+	}
+
+	assert.False(t, reconciler.secretNeedsUpdate(secret3, secret4))
 }
