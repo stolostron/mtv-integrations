@@ -37,7 +37,7 @@ spec:
     - linux/s390x
     - linux/arm64
   - name: dockerfile
-    value: Dockerfile
+    value: Dockerfile.rhtap
   - name: path-context
     value: .
   - name: send-slack-notification
