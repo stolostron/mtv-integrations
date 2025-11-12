@@ -4,7 +4,8 @@
     "ok-to-test"
   ],
   "baseBranchPatterns": [
-    "main"
+    "main",
+    "release-2.15"
   ],
   "prConcurrentLimit": 0,
   "dependencyDashboard": true,
@@ -21,6 +22,9 @@
   "gomod": {
     "packageRules": [
       {
+        "matchBaseBranches": [
+          "release-2.15"
+        ],
         "matchDepTypes": [
           "indirect"
         ],
