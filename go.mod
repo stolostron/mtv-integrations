@@ -31,7 +31,7 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/mod v0.28.0 // indirect
 	golang.org/x/tools v0.37.0 // indirect
-	kubevirt.io/api v1.6.0 // indirect
+	kubevirt.io/api v1.6.3 // indirect
 	kubevirt.io/containerized-data-importer-api v1.63.0 // indirect
 	kubevirt.io/controller-lifecycle-operator-sdk/api v0.2.4 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
