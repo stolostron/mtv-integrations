@@ -17,16 +17,22 @@
     "ignorePaths": [
       "**/Dockerfile"
     ],
-    "pinDigests": true
+    "pinDigests": false
   },
   "gomod": {
     "packageRules": [
       {
+        "matchDepTypes": [
+          "indirect"
+        ],
+        "enabled": false
+      },
+      {
         "matchBaseBranches": [
           "release-2.15"
         ],
-        "matchDepTypes": [
-          "indirect"
+        "matchManagers": [
+          "gomod"
         ],
         "enabled": false
       }
