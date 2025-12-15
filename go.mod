@@ -7,7 +7,7 @@ toolchain go1.24.3
 godebug default=go1.24
 
 // This redirect tells Go to fetch from kubev2v/forklift when konveyor/forklift-controller is imported
-replace github.com/konveyor/forklift-controller => github.com/kubev2v/forklift v0.0.0-20250414122456-a2c36061ea72
+replace github.com/konveyor/forklift-controller => github.com/kubev2v/forklift a1ee270a0a98
 
 require (
 	github.com/konveyor/forklift-controller v0.0.0
