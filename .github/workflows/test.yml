@@ -57,6 +57,66 @@ jobs:
           make prepare-e2e-test
           make run-e2e-test
 
+  fips-build-test:
+    name: FIPS build verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Verify Dockerfile.rhtap has CGO_ENABLED=1
+        run: |
+          echo "Checking Dockerfile.rhtap for CGO_ENABLED=1..."
+          if grep -q "CGO_ENABLED=1" Dockerfile.rhtap; then
+            echo "✓ Dockerfile.rhtap has CGO_ENABLED=1"
+          else
+            echo "✗ ERROR: Dockerfile.rhtap is missing CGO_ENABLED=1 (required for FIPS)"
+            exit 1
+          fi
+
+      - name: Verify Dockerfile.rhtap uses OCP builder image
+        run: |
+          echo "Checking Dockerfile.rhtap uses OpenShift builder image..."
+          if grep -qE "FROM.*brew\.registry\.redhat\.io/rh-osbs/openshift-golang-builder" Dockerfile.rhtap; then
+            echo "✓ Dockerfile.rhtap uses OCP builder image (brew.registry.redhat.io/rh-osbs/openshift-golang-builder)"
+          else
+            echo "✗ ERROR: Dockerfile.rhtap must use OCP builder image from brew.registry.redhat.io/rh-osbs/openshift-golang-builder"
+            exit 1
+          fi
+
+      - name: Verify Dockerfile.rhtap has GOEXPERIMENT=strictfipsruntime
+        run: |
+          echo "Checking Dockerfile.rhtap for GOEXPERIMENT=strictfipsruntime..."
+          if grep -q "GOEXPERIMENT=strictfipsruntime" Dockerfile.rhtap; then
+            echo "✓ Dockerfile.rhtap has GOEXPERIMENT=strictfipsruntime"
+          else
+            echo "✗ ERROR: Dockerfile.rhtap is missing GOEXPERIMENT=strictfipsruntime (required for FIPS)"
+            exit 1
+          fi
+
+      - name: Build with CGO enabled (FIPS prerequisite)
+        run: |
+          # Note: GOEXPERIMENT=strictfipsruntime is Red Hat Go specific and only works
+          # with OCP builder images. Here we verify the code compiles with CGO_ENABLED=1
+          # which is required for FIPS. The actual FIPS build happens in RHTAP/Konflux.
+          echo "Building controller with CGO_ENABLED=1..."
+          CGO_ENABLED=1 go build -tags strictfipsruntime -o bin/manager-fips cmd/main.go
+
+      - name: Verify FIPS binary was built
+        run: |
+          ls -la bin/manager-fips
+          file bin/manager-fips
+          echo "FIPS-prerequisite build completed successfully"
+
+      - name: Run unit tests with CGO enabled
+        run: |
+          CGO_ENABLED=1 go test -tags strictfipsruntime -v $(go list ./... | grep -v /e2e) -short
+
   sonarcloud:
     runs-on: ubuntu-latest
     needs:
