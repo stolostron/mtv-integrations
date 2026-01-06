@@ -144,7 +144,7 @@ The addons do NOT automatically remove the operators when uninstalled. Manual cl
    oc delete clustermanagementaddon mtv-operator -n open-cluster-management
    
    # For CNV Addon
-   oc delete clustermanagementaddon kubevirt-hyperconverged-operator -n open-cluster-management
+   oc delete clustermanagementaddon kubevirt-hyperconverged -n open-cluster-management
    ```
 
 2. Manually remove the operators from the target clusters:
