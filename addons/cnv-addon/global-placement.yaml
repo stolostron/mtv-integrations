@@ -9,3 +9,7 @@ spec:
         labelSelector:
           matchLabels:
             acm/cnv-operator-install: "true"
+    - requiredClusterSelector: # This is for "Fleet virtualization" in the console
+        labelSelector:
+          matchLabels:
+            local-cluster: "true"
