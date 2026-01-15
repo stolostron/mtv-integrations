@@ -8,11 +8,10 @@ spec:
   addOnMeta:
     description: MTV Operator
     displayName: MTV Operator
-  supportedConfigs:
+  defaultConfigs:
     - group: addon.open-cluster-management.io
       resource: addontemplates
-      defaultConfig:
-        name: mtv-operator
+      name: mtv-operator
   installStrategy:
     type: Placements
     placements:

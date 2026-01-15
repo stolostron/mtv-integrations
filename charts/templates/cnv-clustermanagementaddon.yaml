@@ -8,11 +8,10 @@ spec:
   addOnMeta:
     description: Kubevirt Hyperconverged
     displayName: Kubevirt Hyperconverged
-  supportedConfigs:
+  defaultConfigs:
     - group: addon.open-cluster-management.io
       resource: addontemplates
-      defaultConfig:
-        name: kubevirt-hyperconverged
+      name: kubevirt-hyperconverged
   installStrategy:
     type: Placements
     placements:
