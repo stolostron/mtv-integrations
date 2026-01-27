@@ -14,7 +14,7 @@ require (
 	k8s.io/client-go v0.35.0
 	open-cluster-management.io/api v1.1.0
 	open-cluster-management.io/managed-serviceaccount v0.9.0
-	sigs.k8s.io/controller-runtime v0.23.0
+	sigs.k8s.io/controller-runtime v0.23.1
 )
 
 require (
@@ -30,7 +30,7 @@ require (
 	kubevirt.io/api v1.6.0 // indirect
 	kubevirt.io/containerized-data-importer-api v1.63.0 // indirect
 	kubevirt.io/controller-lifecycle-operator-sdk/api v0.2.4 // indirect
-	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
+	sigs.k8s.io/structured-merge-diff/v6 v6.3.2-0.20260122202528-d9cc6641c482 // indirect
 )
 
 require (
