@@ -252,6 +252,7 @@ cert-manager:
 install-resources:
 	-kubectl create ns open-cluster-management
 	kubectl apply -f ./config/webhook_test/
+	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/cluster-permission/refs/heads/main/config/crds/rbac.open-cluster-management.io_clusterpermissions.yaml
 	kubectl apply -f https://raw.githubusercontent.com/kubev2v/forklift/refs/heads/main/operator/config/crd/bases/forklift.konveyor.io_plans.yaml
 	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/api/main/cluster/v1/0000_00_clusters.open-cluster-management.io_managedclusters.crd.yaml
 	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/multicloud-integrations/refs/heads/main/deploy/crds/clusters.open-cluster-management.io_managedserviceaccounts.crd.yaml
@@ -286,8 +287,13 @@ run-webhook-test: e2e-dependencies
 	kubectl wait deployment -n open-cluster-management mtv-integrations-controller --for condition=Available=True --timeout=180s
 	$(GINKGO) -v --fail-fast --label-filter="webhook" --json-report=report_webhook.json test/e2e
 
+run-provider-crd-test: e2e-dependencies run-instrument
+	$(GINKGO) -v --fail-fast --label-filter="managedcluster_provider_crd" --json-report=report_e2e.json test/e2e
+	-go tool covdata textfmt -i=coverage_profiles -o=coverage_e2e.out
+	$(MAKE) exit-instrument
+
 run-e2e-test: e2e-dependencies run-instrument
-	$(GINKGO) -v --fail-fast --label-filter="!webhook" --json-report=report_e2e.json test/e2e
+	$(GINKGO) -v --fail-fast --label-filter="!managedcluster_provider_crd && !webhook" --json-report=report_e2e.json test/e2e
 	-go tool covdata textfmt -i=coverage_profiles -o=coverage_e2e.out
 	$(MAKE) exit-instrument
 

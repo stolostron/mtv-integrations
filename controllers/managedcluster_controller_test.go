@@ -10,6 +10,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -316,6 +317,91 @@ func TestCleanupManagedClusterResources_RemovesFinalizer(t *testing.T) {
 	err := reconciler.cleanupManagedClusterResources(context.TODO(), managedCluster)
 	assert.NoError(t, err)
 
+	updated := &clusterv1.ManagedCluster{}
+	_ = k8sClient.Get(context.TODO(), types.NamespacedName{Name: "test-cluster"}, updated)
+	assert.NotContains(t, updated.Finalizers, ManagedClusterFinalizer)
+}
+
+func TestCleanupManagedClusterResources_DeletesResources(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clusterv1.AddToScheme(scheme)
+	_ = auth.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	managedCluster := &clusterv1.ManagedCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-cluster",
+			Finalizers: []string{ManagedClusterFinalizer},
+		},
+	}
+
+	// Seed the dynamic client with resources that should be deleted.
+	cp := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "rbac.open-cluster-management.io/v1alpha1",
+		"kind":       "ClusterPermission",
+		"metadata": map[string]interface{}{
+			"name":      "test-cluster-mtv",
+			"namespace": "test-cluster",
+		},
+	}}
+	msa := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "authentication.open-cluster-management.io/v1beta1",
+		"kind":       "ManagedServiceAccount",
+		"metadata": map[string]interface{}{
+			"name":      "test-cluster-mtv",
+			"namespace": "test-cluster",
+		},
+	}}
+	secret := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1",
+		"kind":       "Secret",
+		"metadata": map[string]interface{}{
+			"name":      "test-cluster-mtv",
+			"namespace": MTVIntegrationsNamespace,
+		},
+	}}
+	provider := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "forklift.konveyor.io/v1beta1",
+		"kind":       "Provider",
+		"metadata": map[string]interface{}{
+			"name":      "test-cluster-mtv",
+			"namespace": MTVIntegrationsNamespace,
+		},
+	}}
+
+	k8sClient := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(managedCluster).Build()
+	dynClient := fake.NewSimpleDynamicClient(scheme, cp, msa, secret, provider)
+
+	reconciler := &ManagedClusterReconciler{
+		Client:        k8sClient,
+		Scheme:        scheme,
+		DynamicClient: dynClient,
+	}
+
+	err := reconciler.cleanupManagedClusterResources(context.TODO(), managedCluster)
+	assert.NoError(t, err)
+
+	// Verify each resource is deleted from the fake dynamic client.
+	_, err = dynClient.Resource(ClusterPermissionsGVR).Namespace("test-cluster").Get(
+		context.TODO(), "test-cluster-mtv", metav1.GetOptions{})
+	assert.True(t, apierrors.IsNotFound(err), "expected NotFound for ClusterPermission, got err=%v", err)
+
+	// The managed service account must be in managedCluster namespace and name should be "-mtv" suffix
+	_, err = dynClient.Resource(ManagedServiceAccountsGVR).Namespace("test-cluster").Get(
+		context.TODO(), "test-cluster-mtv", metav1.GetOptions{})
+	assert.True(t, apierrors.IsNotFound(err), "expected NotFound for ManagedServiceAccount, got err=%v", err)
+
+	// The provider secret must be in mtv-integrations namespace and name should be "-mtv" suffix
+	_, err = dynClient.Resource(ProviderSecretGVR).Namespace(MTVIntegrationsNamespace).Get(
+		context.TODO(), "test-cluster-mtv", metav1.GetOptions{})
+	assert.True(t, apierrors.IsNotFound(err), "expected NotFound for Provider Secret, got err=%v", err)
+
+	// The provider must be in mtv-integrations namespace and name should be "-mtv" suffix
+	_, err = dynClient.Resource(ProvidersGVR).Namespace(MTVIntegrationsNamespace).Get(
+		context.TODO(), "test-cluster-mtv", metav1.GetOptions{})
+	assert.True(t, apierrors.IsNotFound(err), "expected NotFound for Provider, got err=%v", err)
+
+	// Also verify the finalizer is removed.
 	updated := &clusterv1.ManagedCluster{}
 	_ = k8sClient.Get(context.TODO(), types.NamespacedName{Name: "test-cluster"}, updated)
 	assert.NotContains(t, updated.Finalizers, ManagedClusterFinalizer)

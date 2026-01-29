@@ -1,22 +1,16 @@
 package e2e
 
 import (
-	"context"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stolostron/mtv-integrations/test/utils"
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var _ = Describe("Test crd controller", Ordered, func() {
+var _ = Describe("Test crd controller", Label("managedcluster_provider_crd"), Ordered, func() {
 	const (
 		path               string = "../resources/managedcluster_provider_crd"
 		providerCrdPath    string = path + "/provider_crd.yaml"
 		managedclusterPath string = path + "/managedcluster.yaml"
-		namespace          string = "mtv-integrations"
 	)
 
 	AfterEach(func() {
@@ -27,36 +21,7 @@ var _ = Describe("Test crd controller", Ordered, func() {
 
 	BeforeAll(func() {
 		utils.Kubectl("apply", "-f", managedclusterPath)
-		utils.Kubectl("create", "ns", "open-cluster-management-agent-addon")
-		_, err := clientHub.AppsV1().Deployments("open-cluster-management-agent-addon").
-			Create(context.TODO(), &appsv1.Deployment{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "managed-serviceaccount-addon-agent",
-					Namespace: "open-cluster-management-agent-addon",
-				},
-				Spec: appsv1.DeploymentSpec{
-					Replicas: func(i int32) *int32 { return &i }(1),
-					Selector: &metav1.LabelSelector{
-						MatchLabels: map[string]string{
-							"app": "managed-serviceaccount-addon-agent",
-						},
-					},
-					Template: corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Labels: map[string]string{
-								"app": "managed-serviceaccount-addon-agent",
-							},
-						},
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{{
-								Name:    "pause",
-								Image:   "registry.k8s.io/pause:3.9",
-								Command: []string{"sleep", "infinity"},
-							}},
-						},
-					},
-				},
-			}, metav1.CreateOptions{})
+		err := utils.EnsureMSAADummyDeployment(GinkgoT().Context(), clientHub, "open-cluster-management-agent-addon")
 		Expect(err).NotTo(HaveOccurred())
 	})
 

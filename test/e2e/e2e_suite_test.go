@@ -5,12 +5,14 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 var clientHub kubernetes.Interface
+var dynamicClientHub dynamic.Interface
 
 const kubeconfigHub = "../../kubeconfig_e2e"
 
@@ -29,5 +31,8 @@ var _ = BeforeSuite(func() {
 	}
 
 	clientHub, err = kubernetes.NewForConfig(config)
+	Expect(err).NotTo(HaveOccurred())
+
+	dynamicClientHub, err = dynamic.NewForConfig(config)
 	Expect(err).NotTo(HaveOccurred())
 })
