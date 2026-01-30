@@ -3,9 +3,9 @@ module github.com/stolostron/mtv-integrations
 go 1.26.0
 
 require (
-	github.com/kubev2v/forklift v0.0.0-20260504134425-412c71822cac
-	github.com/onsi/ginkgo/v2 v2.28.3
-	github.com/onsi/gomega v1.40.0
+	github.com/kubev2v/forklift v0.0.0-20260130013426-aff5b843a53f
+	github.com/onsi/ginkgo/v2 v2.28.1
+	github.com/onsi/gomega v1.39.1
 	github.com/stretchr/testify v1.11.1
 	k8s.io/apimachinery v0.36.0
 	k8s.io/client-go v0.36.0
@@ -29,7 +29,7 @@ require (
 	github.com/go-openapi/swag/typeutils v0.26.0 // indirect
 	github.com/go-openapi/swag/yamlutils v0.26.0 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
-	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.7 // indirect
+	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.6 // indirect
 	github.com/openshift/custom-resource-status v1.1.2 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
@@ -37,8 +37,8 @@ require (
 	golang.org/x/mod v0.35.0 // indirect
 	golang.org/x/tools v0.44.0 // indirect
 	k8s.io/streaming v0.36.0 // indirect
-	kubevirt.io/api v1.8.2 // indirect
-	kubevirt.io/containerized-data-importer-api v1.65.0 // indirect
+	kubevirt.io/api v1.6.0 // indirect
+	kubevirt.io/containerized-data-importer-api v1.63.1-0.20251115214221-0b4e9b5c9c59 // indirect
 	kubevirt.io/controller-lifecycle-operator-sdk/api v0.2.4 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.0 // indirect
 )
