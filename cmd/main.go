@@ -55,7 +55,7 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(clusterv1.AddToScheme(scheme))
+	utilruntime.Must(clusterv1.Install(scheme))
 	utilruntime.Must(auth.AddToScheme(scheme))
 	utilruntime.Must(forkliftv1beta1.SchemeBuilder.AddToScheme(scheme))
 	utilruntime.Must(authorizationv1.AddToScheme(scheme))

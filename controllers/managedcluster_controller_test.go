@@ -40,7 +40,7 @@ func TestManagedClusterMTVName(t *testing.T) {
 
 func TestReconcile_AddsFinalizer(t *testing.T) {
 	scheme := runtime.NewScheme()
-	_ = clusterv1.AddToScheme(scheme)
+	_ = clusterv1.Install(scheme)
 	_ = auth.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
 	_ = apiextensionsv1.AddToScheme(scheme)
@@ -80,7 +80,7 @@ func TestReconcile_AddsFinalizer(t *testing.T) {
 
 func TestReconcile_CreatesManagedServiceAccount(t *testing.T) {
 	scheme := runtime.NewScheme()
-	_ = clusterv1.AddToScheme(scheme)
+	_ = clusterv1.Install(scheme)
 	_ = auth.AddToScheme(scheme)
 	_ = apiextensionsv1.AddToScheme(scheme)
 
@@ -121,7 +121,7 @@ func TestReconcile_CreatesManagedServiceAccount(t *testing.T) {
 
 func TestReconcile_CreatesClusterPermission(t *testing.T) {
 	scheme := runtime.NewScheme()
-	_ = clusterv1.AddToScheme(scheme)
+	_ = clusterv1.Install(scheme)
 	_ = auth.AddToScheme(scheme)
 	_ = apiextensionsv1.AddToScheme(scheme)
 	_ = appsv1.AddToScheme(scheme)
@@ -199,7 +199,7 @@ func TestReconcile_CreatesClusterPermission(t *testing.T) {
 
 func TestReconcile_CreatesProvider(t *testing.T) {
 	scheme := runtime.NewScheme()
-	_ = clusterv1.AddToScheme(scheme)
+	_ = clusterv1.Install(scheme)
 	_ = auth.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
 	_ = apiextensionsv1.AddToScheme(scheme)
@@ -293,7 +293,7 @@ func TestReconcile_CreatesProvider(t *testing.T) {
 
 func TestCleanupManagedClusterResources_RemovesFinalizer(t *testing.T) {
 	scheme := runtime.NewScheme()
-	_ = clusterv1.AddToScheme(scheme)
+	_ = clusterv1.Install(scheme)
 	_ = auth.AddToScheme(scheme)
 	_ = apiextensionsv1.AddToScheme(scheme)
 
@@ -366,7 +366,7 @@ func TestManagedClusterReconciler_checkProviderCRD(t *testing.T) {
 
 func TestReconcile_SkipsWhenCRDNotEstablished(t *testing.T) {
 	scheme := runtime.NewScheme()
-	_ = clusterv1.AddToScheme(scheme)
+	_ = clusterv1.Install(scheme)
 	_ = apiextensionsv1.AddToScheme(scheme)
 
 	// Create a CRD that is not established
@@ -407,7 +407,7 @@ func TestReconcile_SkipsWhenCRDNotEstablished(t *testing.T) {
 
 func TestReconcile_HandlesClusterWithoutLabel(t *testing.T) {
 	scheme := runtime.NewScheme()
-	_ = clusterv1.AddToScheme(scheme)
+	_ = clusterv1.Install(scheme)
 	_ = apiextensionsv1.AddToScheme(scheme)
 
 	managedCluster := &clusterv1.ManagedCluster{
@@ -435,7 +435,7 @@ func TestReconcile_HandlesClusterWithoutLabel(t *testing.T) {
 
 func TestReconcile_ErrorHandling(t *testing.T) {
 	scheme := runtime.NewScheme()
-	_ = clusterv1.AddToScheme(scheme)
+	_ = clusterv1.Install(scheme)
 	_ = apiextensionsv1.AddToScheme(scheme)
 
 	// Test with non-existent cluster

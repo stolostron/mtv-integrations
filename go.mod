@@ -12,7 +12,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	k8s.io/apimachinery v0.35.0
 	k8s.io/client-go v0.35.0
-	open-cluster-management.io/api v1.1.0
+	open-cluster-management.io/api v1.2.0
 	open-cluster-management.io/managed-serviceaccount v0.9.0
 	sigs.k8s.io/controller-runtime v0.23.1
 )
