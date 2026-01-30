@@ -77,10 +77,7 @@ func (r *ManagedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Only log "Reconciling" after we know we will actually proceed
-	log.Info("Reconciling ManagedCluster", "name", req.NamespacedName)
-
-	// Handle deletion scenarios
+	// Add cleanup before reconcileActiveCluster to avoid unnecessary steps
 	if r.shouldCleanupCluster(managedCluster) {
 		return ctrl.Result{}, r.cleanupManagedClusterResources(ctx, managedCluster)
 	}
@@ -89,6 +86,9 @@ func (r *ManagedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if r.shouldManageCluster(managedCluster) {
 		return r.reconcileActiveCluster(ctx, managedCluster)
 	}
+
+	// Only log "Reconciling" after we know we will actually proceed
+	log.Info("Reconciling ManagedCluster", "name", req.NamespacedName)
 
 	return ctrl.Result{}, nil
 }

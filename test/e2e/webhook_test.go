@@ -9,7 +9,7 @@ import (
 var _ = Describe("Test webhook", func() {
 	const (
 		path             string = "../resources/webhook/"
-		projectsPath     string = path + "/projects.yaml"
+		projectsPath     string = path + "projects.yaml"
 		planEmptyPath    string = path + "plan_empty.yaml"
 		planManaged1Path string = path + "plan_managed1.yaml"
 		ns               string = "openshift-mtv"

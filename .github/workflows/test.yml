@@ -39,7 +39,23 @@ jobs:
           export CONTAINER_TOOL=docker
           make prepare-webhook-test
           make run-webhook-test
-          
+  provider-crd-test:
+    runs-on: ubuntu-latest
+    env:
+      KIND_NAME: kind-cluster
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Running Tests
+        run: |
+          make prepare-e2e-test
+          make run-provider-crd-test
+
   e2e-test:
     runs-on: ubuntu-latest
     env:
@@ -56,13 +72,13 @@ jobs:
         run: |
           make prepare-e2e-test
           make run-e2e-test
-
   sonarcloud:
     runs-on: ubuntu-latest
     needs:
       - e2e-test
       - webhook-test
       - test
+      - provider-crd-test
     steps:
       - run: echo "Running SonarCloud analysis..."
       - name: Upload artifacts for the sonarcloud workflow
