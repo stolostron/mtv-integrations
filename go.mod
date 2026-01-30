@@ -2,11 +2,8 @@ module github.com/stolostron/mtv-integrations
 
 go 1.25.0
 
-// This redirect tells Go to fetch from kubev2v/forklift when konveyor/forklift-controller is imported
-replace github.com/konveyor/forklift-controller => github.com/kubev2v/forklift v0.0.0-20250414122456-a2c36061ea72
-
 require (
-	github.com/konveyor/forklift-controller v0.0.0
+	github.com/kubev2v/forklift v0.0.0-20260130013426-aff5b843a53f
 	github.com/onsi/ginkgo/v2 v2.27.5
 	github.com/onsi/gomega v1.39.0
 	github.com/stretchr/testify v1.11.1
@@ -21,6 +18,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.2 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
+	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.6 // indirect
 	github.com/openshift/custom-resource-status v1.1.2 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
@@ -28,7 +26,7 @@ require (
 	golang.org/x/mod v0.29.0 // indirect
 	golang.org/x/tools v0.38.0 // indirect
 	kubevirt.io/api v1.6.0 // indirect
-	kubevirt.io/containerized-data-importer-api v1.63.0 // indirect
+	kubevirt.io/containerized-data-importer-api v1.63.1-0.20251115214221-0b4e9b5c9c59 // indirect
 	kubevirt.io/controller-lifecycle-operator-sdk/api v0.2.4 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.2-0.20260122202528-d9cc6641c482 // indirect
 )
