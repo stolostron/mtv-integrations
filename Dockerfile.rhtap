@@ -23,7 +23,8 @@ RUN CGO_ENABLED=1 GOFLAGS='-mod=readonly' go build -tags strictfipsruntime -a -o
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 FROM registry.redhat.io/ubi9/ubi-minimal:latest
 LABEL \
-    name="mtv-integrations" \
+    name="rhacm2/mtv-integrations-rhel9" \
+    cpe="cpe:/a:redhat:acm:2.15::el9" \
     com.redhat.component="mtv-integrations" \
     description="Provides integration between Migration Toolkit for Virtualization (MTV) and \
 Advanced Cluster Management (ACM), enabling VM migration across clusters via a provider \
