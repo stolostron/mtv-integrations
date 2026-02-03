@@ -324,7 +324,7 @@ func TestCleanupManagedClusterResources_RemovesFinalizer(t *testing.T) {
 
 func TestCleanupManagedClusterResources_DeletesResources(t *testing.T) {
 	scheme := runtime.NewScheme()
-	_ = clusterv1.AddToScheme(scheme)
+	_ = clusterv1.Install(scheme)
 	_ = auth.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
 
