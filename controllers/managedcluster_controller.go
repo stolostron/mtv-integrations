@@ -52,7 +52,7 @@ const (
 //+kubebuilder:rbac:groups=authentication.open-cluster-management.io,resources=managedserviceaccounts,verbs=get;list;watch;create;update;patch;delete
 //nolint:revive,lll // Added by kubebuilder
 //+kubebuilder:rbac:groups=authentication.open-cluster-management.io,resources=managedserviceaccounts/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=list
+//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
 
 // Reconcile handles the reconciliation of ManagedCluster resources for MTV integration
 // Refactored to reduce cognitive complexity from 51 to under 50 for SonarQube compliance
@@ -104,6 +104,7 @@ func (r *ManagedClusterReconciler) shouldCleanupCluster(managedCluster *clusterv
 
 // shouldManageCluster determines if the cluster should be managed
 func (r *ManagedClusterReconciler) shouldManageCluster(managedCluster *clusterv1.ManagedCluster) bool {
+	// Must have the CNV label AND have at least one client config with a URL
 	return managedCluster.GetLabels()[LabelCNVOperatorInstall] == "true"
 }
 
@@ -320,6 +321,12 @@ func (r *ManagedClusterReconciler) syncProviderSecret(
 ) error {
 	log := log.FromContext(ctx)
 
+	// Safely get the URL from ManagedClusterClientConfigs
+	var clusterURL string
+	if len(managedCluster.Spec.ManagedClusterClientConfigs) > 0 {
+		clusterURL = managedCluster.Spec.ManagedClusterClientConfigs[0].URL
+	}
+
 	providerSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      managedClusterMTV,
@@ -331,7 +338,7 @@ func (r *ManagedClusterReconciler) syncProviderSecret(
 		},
 		Data: map[string][]byte{
 			"insecureSkipVerify": []byte("false"),
-			"url":                []byte(managedCluster.Spec.ManagedClusterClientConfigs[0].URL),
+			"url":                []byte(clusterURL),
 		},
 	}
 
