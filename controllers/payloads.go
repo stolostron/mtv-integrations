@@ -29,6 +29,13 @@ var (
 
 func providerPayload(managedCluster *clusterv1.ManagedCluster) map[string]interface{} {
 	managedClusterMTV := managedCluster.Name + "-mtv"
+
+	// Safely get the URL from ManagedClusterClientConfigs
+	var clusterURL string
+	if len(managedCluster.Spec.ManagedClusterClientConfigs) > 0 {
+		clusterURL = managedCluster.Spec.ManagedClusterClientConfigs[0].URL
+	}
+
 	return map[string]interface{}{
 		"apiVersion": "forklift.konveyor.io/v1beta1",
 		"kind":       "Provider",
@@ -38,7 +45,7 @@ func providerPayload(managedCluster *clusterv1.ManagedCluster) map[string]interf
 		},
 		"spec": map[string]interface{}{
 			"type": "openshift",
-			"url":  managedCluster.Spec.ManagedClusterClientConfigs[0].URL,
+			"url":  clusterURL,
 			"secret": map[string]interface{}{
 				"name":      managedClusterMTV,
 				"namespace": MTVIntegrationsNamespace,
