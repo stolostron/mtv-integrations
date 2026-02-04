@@ -35,4 +35,4 @@ rules:
   verbs: ["get","list","watch"]
 - apiGroups: ["apps"]
   resources: ["deployments"]
-  verbs: ["list"]
+  verbs: ["get", "list", "watch"]
