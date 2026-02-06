@@ -1,0 +1,9 @@
+# Built simulator binary
+bin/
+
+# Fetched upstream sources
+_vendor/
+
+# Generated reports and metrics
+mtv-metrics-*.csv
+mtv-report-*.md
