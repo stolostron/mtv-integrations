@@ -44,3 +44,4 @@ coverage_profiles/*
 dist/*
 
 test/e2e/e2e.log
+__debug_bin*
