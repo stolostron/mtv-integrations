@@ -104,8 +104,12 @@ func (r *ManagedClusterReconciler) shouldCleanupCluster(managedCluster *clusterv
 
 // shouldManageCluster determines if the cluster should be managed
 func (r *ManagedClusterReconciler) shouldManageCluster(managedCluster *clusterv1.ManagedCluster) bool {
-	// Must have the CNV label AND have at least one client config with a URL
-	return managedCluster.GetLabels()[LabelCNVOperatorInstall] == "true"
+	// Must have the CNV label AND must NOT be in the process of deletion.
+	// Without the deletion check, a cluster being deleted (without our finalizer yet)
+	// would fall through here and we'd try to add a finalizer — which Kubernetes forbids
+	// on objects that already have a deletionTimestamp.
+	return managedCluster.GetDeletionTimestamp() == nil &&
+		managedCluster.GetLabels()[LabelCNVOperatorInstall] == "true"
 }
 
 // reconcileActiveCluster handles the complete lifecycle for active MTV clusters
