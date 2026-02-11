@@ -546,7 +546,7 @@ func TestHelperMethods(t *testing.T) {
 	t.Run("shouldCleanupCluster", func(t *testing.T) {
 		reconciler := &ManagedClusterReconciler{}
 
-		// Test with deletion timestamp
+		// Test with deletion timestamp and finalizer
 		clusterWithDeletion := &clusterv1.ManagedCluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "test",
@@ -555,6 +555,18 @@ func TestHelperMethods(t *testing.T) {
 			},
 		}
 		assert.True(t, reconciler.shouldCleanupCluster(clusterWithDeletion))
+
+		// Test with deletion timestamp but WITHOUT finalizer (race condition:
+		// cluster deleted before finalizer could be added). Should still cleanup
+		// so that any already-created Provider is removed.
+		clusterDeletingNoFinalizer := &clusterv1.ManagedCluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              "test",
+				DeletionTimestamp: &metav1.Time{Time: time.Now()},
+				Labels:            map[string]string{LabelCNVOperatorInstall: "true"},
+			},
+		}
+		assert.True(t, reconciler.shouldCleanupCluster(clusterDeletingNoFinalizer))
 
 		// Test without label but with finalizer
 		clusterWithoutLabel := &clusterv1.ManagedCluster{
@@ -565,7 +577,7 @@ func TestHelperMethods(t *testing.T) {
 		}
 		assert.True(t, reconciler.shouldCleanupCluster(clusterWithoutLabel))
 
-		// Test with label and no finalizer
+		// Test with label and no finalizer (active cluster, not being deleted)
 		clusterWithLabel := &clusterv1.ManagedCluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:   "test",
@@ -592,6 +604,16 @@ func TestHelperMethods(t *testing.T) {
 			},
 		}
 		assert.False(t, reconciler.shouldManageCluster(clusterWithoutLabel))
+
+		// Test with label but being deleted - should NOT manage
+		clusterDeletingWithLabel := &clusterv1.ManagedCluster{
+			ObjectMeta: metav1.ObjectMeta{
+				DeletionTimestamp: &metav1.Time{Time: time.Now()},
+				Labels:            map[string]string{LabelCNVOperatorInstall: "true"},
+				Finalizers:        []string{"some-finalizer"},
+			},
+		}
+		assert.False(t, reconciler.shouldManageCluster(clusterDeletingWithLabel))
 	})
 }
 

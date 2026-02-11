@@ -95,10 +95,15 @@ func (r *ManagedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 // Helper methods to reduce cognitive complexity in Reconcile function
 
-// shouldCleanupCluster determines if the cluster should be cleaned up
+// shouldCleanupCluster determines if the cluster should be cleaned up.
+// When the cluster is being deleted we always attempt cleanup regardless of
+// whether our finalizer is present – a Provider may have been created before
+// the finalizer was persisted.
 func (r *ManagedClusterReconciler) shouldCleanupCluster(managedCluster *clusterv1.ManagedCluster) bool {
-	return (managedCluster.GetDeletionTimestamp() != nil ||
-		managedCluster.GetLabels()[LabelCNVOperatorInstall] != "true") &&
+	if managedCluster.GetDeletionTimestamp() != nil {
+		return true
+	}
+	return managedCluster.GetLabels()[LabelCNVOperatorInstall] != "true" &&
 		controllerutil.ContainsFinalizer(managedCluster, ManagedClusterFinalizer)
 }
 
