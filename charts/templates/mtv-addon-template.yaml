@@ -22,7 +22,7 @@ spec:
               targetNamespaces:
                   - openshift-mtv
             subscription:
-              channel: release-v2.10
+              channel: release-v2.11
               name: mtv-operator
               namespace: openshift-mtv
             upgradeApproval: Automatic
