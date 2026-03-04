@@ -1,0 +1,146 @@
+name: VM Migration Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  vm-migration-check:
+    name: Verify VM running on target cluster
+    runs-on: ubuntu-latest
+    # Only run when the PR description has [x] vm_migration checked
+    if: contains(github.event.pull_request.body, '[x] vm_migration')
+    env:
+      HUB_API_URL: ${{ secrets.HUB_API_URL }}
+      HUB_USERNAME: ${{ secrets.HUB_USERNAME }}
+      HUB_PASSWORD: ${{ secrets.HUB_PASSWORD }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find changed VM YAML files
+        id: find_vms
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CHANGED_FILES=$(gh pr diff ${{ github.event.pull_request.number }} --name-only)
+
+          VM_FILES=""
+          while IFS= read -r file; do
+            if [[ "$file" == *.yaml || "$file" == *.yml ]]; then
+              if [ -f "$file" ] && grep -q 'kind: VirtualMachine' "$file" 2>/dev/null; then
+                VM_FILES="${VM_FILES}${file}"$'\n'
+              fi
+            fi
+          done <<< "$CHANGED_FILES"
+
+          if [ -z "$VM_FILES" ]; then
+            echo "No VirtualMachine YAML files found in this PR."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Found VM files:"
+            echo "$VM_FILES"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "files<<EOF"
+              echo "$VM_FILES"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install oc CLI
+        if: steps.find_vms.outputs.found == 'true'
+        uses: redhat-actions/openshift-tools-installer@v1
+        with:
+          oc: "4"
+
+      - name: Login to hub cluster
+        if: steps.find_vms.outputs.found == 'true'
+        run: |
+          oc login --server="${HUB_API_URL}" \
+            --username="${HUB_USERNAME}" \
+            --password="${HUB_PASSWORD}" \
+            --insecure-skip-tls-verify=true
+
+      - name: Verify VMs on managed clusters via ManagedClusterView
+        if: steps.find_vms.outputs.found == 'true'
+        run: |
+          FAILED=0
+
+          while IFS= read -r vm_file; do
+            [ -z "$vm_file" ] && continue
+
+            CLUSTER_NAME=$(basename "$(dirname "$vm_file")")
+            VM_NAME=$(yq e '.metadata.name' "$vm_file")
+            VM_NAMESPACE=$(yq e '.metadata.namespace // "default"' "$vm_file")
+            MCV_NAME="check-vmi-${VM_NAME}"
+
+            echo "============================================"
+            echo "VM File:      $vm_file"
+            echo "Cluster:      $CLUSTER_NAME"
+            echo "VM Name:      $VM_NAME"
+            echo "VM Namespace: $VM_NAMESPACE"
+            echo "============================================"
+
+            oc apply -f - <<EOF
+          apiVersion: view.open-cluster-management.io/v1beta1
+          kind: ManagedClusterView
+          metadata:
+            name: ${MCV_NAME}
+            namespace: ${CLUSTER_NAME}
+          spec:
+            scope:
+              apiGroup: kubevirt.io
+              version: v1
+              resource: virtualmachineinstances
+              name: ${VM_NAME}
+              namespace: ${VM_NAMESPACE}
+          EOF
+
+            echo "Waiting for ManagedClusterView to be processed..."
+            for i in $(seq 1 30); do
+              CONDITION=$(oc get managedclusterview "${MCV_NAME}" -n "${CLUSTER_NAME}" \
+                -o jsonpath='{.status.conditions[?(@.type=="Processing")].status}' 2>/dev/null)
+              if [ "$CONDITION" = "True" ]; then
+                break
+              fi
+              sleep 2
+            done
+
+            if [ "$CONDITION" != "True" ]; then
+              echo "::error::ManagedClusterView '${MCV_NAME}' did not become ready in time"
+              oc delete managedclusterview "${MCV_NAME}" -n "${CLUSTER_NAME}" --ignore-not-found
+              FAILED=1
+              continue
+            fi
+
+            PHASE=$(oc get managedclusterview "${MCV_NAME}" -n "${CLUSTER_NAME}" \
+              -o jsonpath='{.status.result.status.phase}' 2>/dev/null)
+            echo "VMI Phase: $PHASE"
+
+            if [ "$PHASE" != "Running" ]; then
+              echo "::error::VM '${VM_NAME}' on cluster '${CLUSTER_NAME}' is not running (phase: ${PHASE})"
+              FAILED=1
+            else
+              echo "VM '${VM_NAME}' is running on cluster '${CLUSTER_NAME}'"
+            fi
+
+            oc delete managedclusterview "${MCV_NAME}" -n "${CLUSTER_NAME}" --ignore-not-found
+
+          done <<< "${{ steps.find_vms.outputs.files }}"
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo ""
+            echo "::error::One or more VMs are not in Running state"
+            exit 1
+          fi
+
+          echo ""
+          echo "All VMs verified as Running."
+
+      - name: Skip - no VM files
+        if: steps.find_vms.outputs.found != 'true'
+        run: echo "No VirtualMachine YAML files changed in this PR. Skipping VM check."
