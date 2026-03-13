@@ -23,6 +23,7 @@ This repository also contains two addons for OCM that enable container native vi
 ### MTV (Migration Toolkit for Virtualization) Addon
 
 **Quick summary:**
+
 - **MTV Addon:** Installs the Migration Toolkit for Virtualization operator in the `openshift-mtv` namespace on the hub, enabling VM migration features. It uses the `release-v2.11` channel and enables UI plugin, validation, and volume populator features.
 - **CNV Addon:** Installs the KubeVirt Hyperconverged operator in the `openshift-cnv` namespace, providing virtualization capabilities. It configures optimized HyperConverged settings and uses OperatorPolicy for lifecycle management.
 
@@ -61,16 +62,19 @@ oc apply -f ./addons/mtv-addon
 ## Development
 
 ### Building
+
 ```bash
 make build
 ```
 
 ### Running Locally
+
 ```bash
 make run
 ```
 
 ### Testing
+
 ```bash
 # Run unit tests
 make test
@@ -80,6 +84,7 @@ make run-webhook-test
 ```
 
 ### Building Container Image
+
 ```bash
 # Set your registry
 export REGISTRY_BASE=quay.io/your-org
@@ -134,35 +139,73 @@ Add the following configuration to your `.vscode/launch.json`:
 ## Uninstallation
 
 ### Important Note
+
 The addons do NOT automatically remove the operators when uninstalled. Manual cleanup is required.
 
 ### Uninstallation Steps
 
 1. Remove the addon from the hub cluster:
+
    ```bash
    # For MTV Addon
    oc delete clustermanagementaddon mtv-operator -n open-cluster-management
-   
+
    # For CNV Addon
    oc delete clustermanagementaddon kubevirt-hyperconverged -n open-cluster-management
    ```
 
 2. Manually remove the operators from the target clusters:
+
    ```bash
    # For MTV Operator
    oc delete subscription mtv-operator -n openshift-mtv
    oc delete operatorgroup openshift-mtv -n openshift-mtv
-   
+
    # For CNV Operator
    oc delete subscription kubevirt-hyperconverged -n openshift-cnv
    oc delete operatorgroup openshift-cnv -n openshift-cnv
    ```
 
 3. Remove the namespaces (optional, only if you want to completely clean up):
+
    ```bash
    oc delete namespace openshift-mtv
    oc delete namespace openshift-cnv
    ```
+
+## Known Issues
+
+### CNV Addon stuck "In progress" after upgrading ACM from 2.15 to 2.16
+
+**Affected versions:** ACM 2.15 → 2.16 upgrade
+
+**Symptom:**
+
+In the ACM console under **Infrastructure > Clusters > Add-ons**, the `kubevirt-hyperconverged` addon shows as **In progress** forever after upgrading to ACM 2.16:
+
+```text
+oc get managedclusteraddon -A | grep kubevirt-hyperconverged
+aro-central   kubevirt-hyperconverged   False      True
+```
+
+**Root cause:**
+
+In ACM 2.16, the two separate addons `kubevirt-hyperconverged` and `kubevirt-hyperconverged-operator` were merged into a single `kubevirt-hyperconverged` addon. During an in-place upgrade from 2.15 to 2.16, the old `ClusterManagementAddOn` and `AddOnTemplate` named `kubevirt-hyperconverged-operator` are **not automatically removed**, and the existing `kubevirt-hyperconverged` `ClusterManagementAddOn` is **not updated** to the new 2.16 version. The conflict between these stale 2.15 resources and the outdated `kubevirt-hyperconverged` CMA causes the addon controller to not update the `ManifestWork` properly, leaving newly enabled clusters stuck in progress.
+
+**Fix:**
+
+Run the `update_cleanup.sh` script from the root of this repository against your hub cluster:
+
+```bash
+chmod +x update_cleanup.sh
+./update_cleanup.sh
+```
+
+The script performs the following:
+
+1. Deletes the stale ACM 2.15 resources: `ClusterManagementAddOn` and `AddOnTemplate` named `kubevirt-hyperconverged-operator`
+2. Reads the `installer.namespace` label from the existing `ClusterManagementAddOn kubevirt-hyperconverged` and re-applies it with the correct `installStrategy.placements.namespace`
+3. For each managed cluster labeled `acm/cnv-operator-install: "true"`, re-applies the `ManifestWork` named `addon-kubevirt-hyperconverged-deploy-0` with all five resources in the correct order: `Role` and `RoleBindings` first, followed by `OperatorPolicy` and `HyperConverged`. This ensures `klusterlet-work-sa` has the required RBAC permissions before the `OperatorPolicy` is applied
 
 ## Contributing
 
