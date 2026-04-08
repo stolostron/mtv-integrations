@@ -1,6 +1,6 @@
 module github.com/stolostron/mtv-integrations
 
-go 1.25.0
+go 1.25.7
 
 require (
 	github.com/kubev2v/forklift v0.0.0-20260407011235-e8f9fe30972d
