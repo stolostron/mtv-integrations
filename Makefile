@@ -260,7 +260,13 @@ install-resources:
 kind-load-image: docker-build
 	kind load image-archive <($(CONTAINER_TOOL) save $(IMG)) --name $(KIND_NAME)
 
-prepare-webhook-test: kind-create-cluster create-user add-user cert-manager kind-load-image install-resources deploy
+prepare-webhook-test: kind-create-cluster create-user add-user cert-manager kind-load-image install-resources deploy patch-webhook-e2e-userpermission-names
+
+# kind cannot create UserPermission objects whose names contain ':' (RFC 1123). Point the webhook at DNS-safe mock names.
+.PHONY: patch-webhook-e2e-userpermission-names
+patch-webhook-e2e-userpermission-names:
+	$(KUBECTL) set env deployment/mtv-integrations-controller -n open-cluster-management MTV_USERPERMISSION_NAMES=managedcluster-admin,kubevirt-io-admin --overwrite
+	$(KUBECTL) rollout status deployment/mtv-integrations-controller -n open-cluster-management --timeout=120s
 
 prepare-e2e-test: kind-create-cluster cert-manager install-resources deploy
 

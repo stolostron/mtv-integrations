@@ -134,7 +134,9 @@ func TestUserPermissionCoversTarget(t *testing.T) {
 }
 
 func TestValidateTargetAccessViaUserPermissions(t *testing.T) {
-	t.Parallel()
+	// Not parallel on the outer test: t.Setenv is incompatible with t.Parallel on the same *testing.T (Go 1.25+).
+	// Empty env matches unset and uses built-in default names in userPermissionLookupNames.
+	t.Setenv(envUserPermissionNames, "")
 	scheme := runtime.NewScheme()
 
 	t.Run("deny when neither permission grants access", func(t *testing.T) {
@@ -200,6 +202,22 @@ func TestValidateTargetAccessViaUserPermissions(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, ok)
 	})
+}
+
+func TestValidateTargetAccessViaUserPermissions_EnvLookupNames(t *testing.T) {
+	// Not parallel: MTV_USERPERMISSION_NAMES is process-global.
+	t.Setenv(envUserPermissionNames, "mock-a,mock-b")
+	scheme := runtime.NewScheme()
+	a := userPermissionObject("mock-a", []map[string]interface{}{
+		{"cluster": "other", "namespaces": []interface{}{"*"}},
+	})
+	b := userPermissionObject("mock-b", []map[string]interface{}{
+		{"cluster": "target", "namespaces": []interface{}{"ns1"}},
+	})
+	client := fake.NewSimpleDynamicClient(scheme, a, b)
+	ok, err := validateTargetAccessViaUserPermissions(context.Background(), client, "target", "ns1")
+	require.NoError(t, err)
+	assert.True(t, ok)
 }
 
 func TestRawToPlan(t *testing.T) {

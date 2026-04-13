@@ -1,7 +1,10 @@
+# Mock UserPermission objects for kind e2e (DNS-safe metadata.name).
+# Production hubs use managedcluster:admin / kubevirt.io:admin; the controller must be
+# deployed with MTV_USERPERMISSION_NAMES=managedcluster-admin,kubevirt-io-admin for these fixtures.
 apiVersion: clusterview.open-cluster-management.io/v1alpha1
 kind: UserPermission
 metadata:
-  name: managedcluster:admin
+  name: managedcluster-admin
 status:
   bindings:
     - cluster: managed1
@@ -12,7 +15,7 @@ status:
 apiVersion: clusterview.open-cluster-management.io/v1alpha1
 kind: UserPermission
 metadata:
-  name: kubevirt.io:admin
+  name: kubevirt-io-admin
 status:
   bindings:
     - cluster: managed1

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/kubev2v/forklift/pkg/apis/forklift/v1beta1"
@@ -24,6 +25,10 @@ import (
 const (
 	userPermissionManagedClusterAdmin = "managedcluster:admin"
 	userPermissionKubevirtAdmin       = "kubevirt.io:admin"
+	// envUserPermissionNames is optional (e2e/kind): comma-separated UserPermission resource names to GET.
+	// Standard Kubernetes rejects ':' in metadata.name,
+	// so local e2e uses DNS-safe names via this env; production leaves it unset.
+	envUserPermissionNames = "MTV_USERPERMISSION_NAMES"
 )
 
 var userPermissionGVR = schema.GroupVersionResource{
@@ -103,23 +108,41 @@ func rawToPlan(rawExt runtime.RawExtension) (*v1beta1.Plan, error) {
 	return plan, nil
 }
 
-// validateTargetAccessViaUserPermissions allows the Plan if either UserPermission
-// managedcluster:admin or kubevirt.io:admin has a status binding for the target
-// cluster and namespace (namespaces list may contain '*' for all namespaces).
+// validateTargetAccessViaUserPermissions allows the Plan if any configured UserPermission
+// (default: managedcluster:admin, kubevirt.io:admin; see MTV_USERPERMISSION_NAMES) has a status
+// binding for the target cluster and namespace (namespaces list may contain '*' for all namespaces).
 func validateTargetAccessViaUserPermissions(
 	ctx context.Context,
 	dynamicClient dynamic.Interface,
 	targetCluster, targetNamespace string,
 ) (bool, error) {
-	ok, err := userPermissionCoversTarget(
-		ctx, dynamicClient, userPermissionManagedClusterAdmin, targetCluster, targetNamespace)
-	if err != nil {
-		return false, err
+	for _, name := range userPermissionLookupNames() {
+		ok, err := userPermissionCoversTarget(
+			ctx, dynamicClient, name, targetCluster, targetNamespace)
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			return true, nil
+		}
 	}
-	if ok {
-		return true, nil
+	return false, nil
+}
+
+func userPermissionLookupNames() []string {
+	if s := strings.TrimSpace(os.Getenv(envUserPermissionNames)); s != "" {
+		var out []string
+		for _, p := range strings.Split(s, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				out = append(out, p)
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
 	}
-	return userPermissionCoversTarget(ctx, dynamicClient, userPermissionKubevirtAdmin, targetCluster, targetNamespace)
+	return []string{userPermissionManagedClusterAdmin, userPermissionKubevirtAdmin}
 }
 
 func userPermissionCoversTarget(
