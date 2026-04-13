@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/kubev2v/forklift/pkg/apis/forklift/v1beta1"
 	v1 "k8s.io/api/admission/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -20,10 +22,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-var kubevirtprojectsClusterViewGVR = schema.GroupVersionResource{
+const (
+	userPermissionManagedClusterAdmin = "managedcluster:admin"
+	userPermissionKubevirtAdmin       = "kubevirt.io:admin"
+	// envUserPermissionNames is optional (e2e/kind): comma-separated UserPermission resource names to GET.
+	// Standard Kubernetes rejects ':' in metadata.name,
+	// so local e2e uses DNS-safe names via this env; production leaves it unset.
+	envUserPermissionNames = "MTV_USERPERMISSION_NAMES"
+)
+
+var userPermissionGVR = schema.GroupVersionResource{
 	Group:    "clusterview.open-cluster-management.io",
-	Version:  "v1",
-	Resource: "kubevirtprojects",
+	Version:  "v1alpha1",
+	Resource: "userpermissions",
 }
 
 func ValidateWebhook(c client.Client, config rest.Config) *webhook.Admission {
@@ -66,7 +77,7 @@ func ValidateWebhook(c client.Client, config rest.Config) *webhook.Admission {
 					return webhook.Denied("Failed to setup dynamic client")
 				}
 
-				valid, err := validateKubevirtView(dynamicClient, clusterName, targetNamespace)
+				valid, err := validateTargetAccessViaUserPermissions(ctx, dynamicClient, clusterName, targetNamespace)
 				if err != nil {
 					log.Error(err, "Validation failed during access check")
 					return webhook.Denied("Authorization check for cluster access failed")
@@ -97,29 +108,91 @@ func rawToPlan(rawExt runtime.RawExtension) (*v1beta1.Plan, error) {
 	return plan, nil
 }
 
-func validateKubevirtView(dynamicClient dynamic.Interface, targetCluster, targetNamespace string) (bool, error) {
-	virtProjectList, err := dynamicClient.Resource(kubevirtprojectsClusterViewGVR).
-		List(context.TODO(), metav1.ListOptions{})
+// validateTargetAccessViaUserPermissions allows the Plan if any configured UserPermission
+// (default: managedcluster:admin, kubevirt.io:admin; see MTV_USERPERMISSION_NAMES) has a status
+// binding for the target cluster and namespace (namespaces list may contain '*' for all namespaces).
+func validateTargetAccessViaUserPermissions(
+	ctx context.Context,
+	dynamicClient dynamic.Interface,
+	targetCluster, targetNamespace string,
+) (bool, error) {
+	for _, name := range userPermissionLookupNames() {
+		ok, err := userPermissionCoversTarget(
+			ctx, dynamicClient, name, targetCluster, targetNamespace)
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func userPermissionLookupNames() []string {
+	if s := strings.TrimSpace(os.Getenv(envUserPermissionNames)); s != "" {
+		var out []string
+		for _, p := range strings.Split(s, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				out = append(out, p)
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return []string{userPermissionManagedClusterAdmin, userPermissionKubevirtAdmin}
+}
+
+func userPermissionCoversTarget(
+	ctx context.Context,
+	dynamicClient dynamic.Interface,
+	name, targetCluster, targetNamespace string,
+) (bool, error) {
+	obj, err := dynamicClient.Resource(userPermissionGVR).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return false, fmt.Errorf("validateClusterView: failed to List Resource %v", err)
+		if errors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("get UserPermission %q: %w", name, err)
 	}
 
-	for _, item := range virtProjectList.Items {
-		cluster, _, err := unstructured.NestedString(item.Object, "metadata", "labels", "cluster")
-		if err != nil {
-			return false, fmt.Errorf("Failed to extract 'cluster' label: %v", err)
-		}
+	bindings, found, err := unstructured.NestedSlice(obj.Object, "status", "bindings")
+	if err != nil || !found {
+		return false, nil
+	}
 
-		// project is namespace
-		namespace, _, err := unstructured.NestedString(item.Object, "metadata", "labels", "project")
-		if err != nil {
-			return false, fmt.Errorf("Failed to extract 'project' (namespace) label: %v", err)
+	for _, raw := range bindings {
+		binding, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
 		}
-
-		if cluster == targetCluster && (namespace == targetNamespace || namespace == "all_projects") {
+		cluster, ok, _ := unstructured.NestedString(binding, "cluster")
+		if !ok || cluster != targetCluster {
+			continue
+		}
+		if bindingNamespacesCoverTarget(binding, targetNamespace) {
 			return true, nil
 		}
 	}
 
 	return false, nil
+}
+
+func bindingNamespacesCoverTarget(binding map[string]interface{}, targetNamespace string) bool {
+	nsList, found, err := unstructured.NestedSlice(binding, "namespaces")
+	if err != nil || !found {
+		return false
+	}
+	for _, n := range nsList {
+		s, ok := n.(string)
+		if !ok {
+			continue
+		}
+		if s == "*" || s == targetNamespace {
+			return true
+		}
+	}
+	return false
 }

@@ -8,20 +8,20 @@ import (
 
 var _ = Describe("Test webhook", func() {
 	const (
-		path             string = "../resources/webhook/"
-		projectsPath     string = path + "projects.yaml"
-		planEmptyPath    string = path + "plan_empty.yaml"
-		planManaged1Path string = path + "plan_managed1.yaml"
-		ns               string = "openshift-mtv"
+		path                string = "../resources/webhook/"
+		userPermissionsPath string = path + "userpermissions.yaml"
+		planEmptyPath       string = path + "plan_empty.yaml"
+		planManaged1Path    string = path + "plan_managed1.yaml"
+		ns                  string = "openshift-mtv"
 	)
 
 	//nolint:lll
 	It("Should get failed message from webhook when user don't have permission to access target namespace",
 		Label("webhook"), func() {
-			utils.Kubectl("apply", "-f", projectsPath)
+			utils.Kubectl("apply", "-f", userPermissionsPath)
 			DeferCleanup(func() {
-				By("Clean up the projects")
-				utils.Kubectl("delete", "-f", projectsPath, "--ignore-not-found")
+				By("Clean up UserPermission fixtures")
+				utils.Kubectl("delete", "-f", userPermissionsPath, "--ignore-not-found")
 			})
 
 			utils.Kubectl("create", "ns", ns)
