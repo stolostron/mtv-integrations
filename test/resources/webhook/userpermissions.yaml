@@ -1,0 +1,21 @@
+apiVersion: clusterview.open-cluster-management.io/v1alpha1
+kind: UserPermission
+metadata:
+  name: managedcluster:admin
+status:
+  bindings:
+    - cluster: managed1
+      namespaces:
+        - "*"
+      scope: cluster
+---
+apiVersion: clusterview.open-cluster-management.io/v1alpha1
+kind: UserPermission
+metadata:
+  name: kubevirt.io:admin
+status:
+  bindings:
+    - cluster: managed1
+      namespaces:
+        - "*"
+      scope: cluster

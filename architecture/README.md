@@ -34,9 +34,9 @@ The **MTV plan webhook** is a validating admission webhook for the `Plan` resour
   Impersonates the requesting user to check their permissions.
 
 - **Target namespace access check:**
-  - Extracts the target provider & namespace and destination provider (cluster) & namespace from the Plan spec.
-  - Uses a dynamic client with impersonation to attempt access to the `kubevirtprojects` resource in the target namespace on the destination cluster.
-  - If the user lacks access to an of the four target and destination fields, the webhook denies the request with a clear error message.
+  - Extracts the destination provider name (must end with `-mtv`), derives the managed cluster name, and reads `spec.targetNamespace` from the Plan.
+  - Uses a dynamic client with impersonation to **get** cluster-scoped `UserPermission` resources `managedcluster:admin` and `kubevirt.io:admin` (`clusterview.open-cluster-management.io/v1alpha1`). The request is allowed if **either** permission has a `status.bindings` entry for that cluster whose `namespaces` list includes `*` or the target namespace.
+  - If neither permission grants access, the webhook denies the request with a clear error message.
 
 - **Security enforcement:**  
   Ensures only users with appropriate permissions can create migration plans targeting specific namespaces, preventing privilege escalation or unauthorized migrations.
