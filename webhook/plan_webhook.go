@@ -25,6 +25,8 @@ import (
 const (
 	userPermissionManagedClusterAdmin = "managedcluster:admin"
 	userPermissionKubevirtAdmin       = "kubevirt.io:admin"
+	userPermissionKubevirtEdit        = "kubevirt.io:edit"
+
 	// envUserPermissionNames is optional (e2e/kind): comma-separated UserPermission resource names to GET.
 	// Standard Kubernetes rejects ':' in metadata.name,
 	// so local e2e uses DNS-safe names via this env; production leaves it unset.
@@ -109,7 +111,7 @@ func rawToPlan(rawExt runtime.RawExtension) (*v1beta1.Plan, error) {
 }
 
 // validateTargetAccessViaUserPermissions allows the Plan if any configured UserPermission
-// (default: managedcluster:admin, kubevirt.io:admin; see MTV_USERPERMISSION_NAMES) has a status
+// (default: managedcluster:admin, kubevirt.io:admin, kubevirt.io:edit; see MTV_USERPERMISSION_NAMES) has a status
 // binding for the target cluster and namespace (namespaces list may contain '*' for all namespaces).
 func validateTargetAccessViaUserPermissions(
 	ctx context.Context,
@@ -142,7 +144,11 @@ func userPermissionLookupNames() []string {
 			return out
 		}
 	}
-	return []string{userPermissionManagedClusterAdmin, userPermissionKubevirtAdmin}
+	return []string{
+		userPermissionManagedClusterAdmin,
+		userPermissionKubevirtAdmin,
+		userPermissionKubevirtEdit,
+	}
 }
 
 func userPermissionCoversTarget(

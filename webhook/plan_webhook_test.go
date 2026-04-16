@@ -202,6 +202,17 @@ func TestValidateTargetAccessViaUserPermissions(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, ok)
 	})
+
+	t.Run("allow when only kubevirt edit matches", func(t *testing.T) {
+		t.Parallel()
+		edit := userPermissionObject(userPermissionKubevirtEdit, []map[string]interface{}{
+			{"cluster": "target", "namespaces": []interface{}{"ns1"}},
+		})
+		client := fake.NewSimpleDynamicClient(scheme, edit)
+		ok, err := validateTargetAccessViaUserPermissions(context.Background(), client, "target", "ns1")
+		require.NoError(t, err)
+		assert.True(t, ok)
+	})
 }
 
 func TestValidateTargetAccessViaUserPermissions_EnvLookupNames(t *testing.T) {
