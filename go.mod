@@ -50,7 +50,6 @@ require (
 	github.com/go-openapi/jsonpointer v0.21.2 // indirect
 	github.com/go-openapi/jsonreference v0.21.0 // indirect
 	github.com/go-openapi/swag v0.23.1 // indirect
-	github.com/google/btree v1.1.3 // indirect
 	github.com/google/cel-go v0.26.0 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
@@ -113,3 +112,6 @@ require (
 )
 
 replace open-cluster-management.io/cluster-permission => github.com/open-cluster-management-io/cluster-permission v0.16.2
+
+// controller-runtime v0.24 not yet released; use main branch commit that adds HasSyncedChecker support for k8s v0.36.0
+replace sigs.k8s.io/controller-runtime => github.com/kubernetes-sigs/controller-runtime v0.0.0-20260418192536-e4a998cc6b09
