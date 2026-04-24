@@ -72,7 +72,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: fmt vet setup-envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -v -json $$(go list ./... | grep -v /e2e) -coverprofile coverage_unit.out | tee report_unit.json
+	GOTOOLCHAIN=$(GOTOOLCHAIN_VERSION) KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -v -json $$(go list ./... | grep -v /e2e) -coverprofile coverage_unit.out | tee report_unit.json
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
@@ -168,8 +168,14 @@ CONTROLLER_TOOLS_VERSION ?= v0.17.1
 #ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
 ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
-ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
+# Pinned to 1.35 because envtest binaries for 1.36 are not yet published for darwin/arm64.
+# Revert to auto-derivation once available: $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
+ENVTEST_K8S_VERSION ?= 1.35
 GOLANGCI_LINT_VERSION ?= v1.64.3
+#GOTOOLCHAIN_VERSION pins the Go toolchain explicitly, avoiding version-mismatch errors when
+# go test is run in a pipeline (where GOTOOLCHAIN=auto re-exec may not fire).
+# Kept here (not in go.mod toolchain directive) so hermeto fetch-deps is not affected.
+GOTOOLCHAIN_VERSION ?= go1.26.2
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
