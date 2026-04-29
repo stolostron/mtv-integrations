@@ -5,7 +5,7 @@ go 1.25.2
 require (
 	github.com/kubev2v/forklift v0.0.0-20260423171229-cff47c117f4f
 	github.com/onsi/ginkgo/v2 v2.28.1
-	github.com/onsi/gomega v1.39.1
+	github.com/onsi/gomega v1.40.0
 	github.com/stretchr/testify v1.11.1
 	k8s.io/apimachinery v0.35.3
 	k8s.io/client-go v0.35.3
