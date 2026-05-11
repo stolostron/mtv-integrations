@@ -107,13 +107,13 @@ func validateKubevirtView(dynamicClient dynamic.Interface, targetCluster, target
 	for _, item := range virtProjectList.Items {
 		cluster, _, err := unstructured.NestedString(item.Object, "metadata", "labels", "cluster")
 		if err != nil {
-			return false, fmt.Errorf("Failed to extract 'cluster' label: %v", err)
+			return false, fmt.Errorf("failed to extract 'cluster' label: %v", err)
 		}
 
 		// project is namespace
 		namespace, _, err := unstructured.NestedString(item.Object, "metadata", "labels", "project")
 		if err != nil {
-			return false, fmt.Errorf("Failed to extract 'project' (namespace) label: %v", err)
+			return false, fmt.Errorf("failed to extract 'project' (namespace) label: %v", err)
 		}
 
 		if cluster == targetCluster && (namespace == targetNamespace || namespace == "all_projects") {
