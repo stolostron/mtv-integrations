@@ -11,6 +11,12 @@ const (
 	ManagedClusterFinalizer  = "mtv-integrations.open-cluster-management.io/resource-cleanup"
 	LabelCNVOperatorInstall  = "acm/cnv-operator-install"
 	MTVIntegrationsNamespace = "mtv-integrations"
+	payloadKeyAPIVersion     = "apiVersion"
+	payloadKeyKind           = "kind"
+	payloadKeyMetadata       = "metadata"
+	payloadKeyName           = "name"
+	payloadKeyNamespace      = "namespace"
+	payloadKeyURL            = "url"
 )
 
 var TokenWaitDuration = 4 * time.Second
@@ -37,18 +43,18 @@ func providerPayload(managedCluster *clusterv1.ManagedCluster) map[string]interf
 	}
 
 	return map[string]interface{}{
-		"apiVersion": "forklift.konveyor.io/v1beta1",
-		"kind":       "Provider",
-		"metadata": map[string]interface{}{
-			"name":      managedClusterMTV,
-			"namespace": MTVIntegrationsNamespace,
+		payloadKeyAPIVersion: "forklift.konveyor.io/v1beta1",
+		payloadKeyKind:       "Provider",
+		payloadKeyMetadata: map[string]interface{}{
+			payloadKeyName:      managedClusterMTV,
+			payloadKeyNamespace: MTVIntegrationsNamespace,
 		},
 		"spec": map[string]interface{}{
-			"type": "openshift",
-			"url":  clusterURL,
+			"type":        "openshift",
+			payloadKeyURL: clusterURL,
 			"secret": map[string]interface{}{
-				"name":      managedClusterMTV,
-				"namespace": MTVIntegrationsNamespace,
+				payloadKeyName:      managedClusterMTV,
+				payloadKeyNamespace: MTVIntegrationsNamespace,
 			},
 		},
 	}
@@ -57,23 +63,23 @@ func providerPayload(managedCluster *clusterv1.ManagedCluster) map[string]interf
 func clusterPermissionPayload(managedCluster *clusterv1.ManagedCluster, msaaNamespace string) map[string]interface{} {
 	managedClusterMTV := managedCluster.Name + "-mtv"
 	return map[string]interface{}{
-		"apiVersion": "rbac.open-cluster-management.io/v1alpha1",
-		"kind":       "ClusterPermission",
-		"metadata": map[string]interface{}{
-			"name":      managedClusterMTV,
-			"namespace": managedCluster.Name,
+		payloadKeyAPIVersion: "rbac.open-cluster-management.io/v1alpha1",
+		payloadKeyKind:       "ClusterPermission",
+		payloadKeyMetadata: map[string]interface{}{
+			payloadKeyName:      managedClusterMTV,
+			payloadKeyNamespace: managedCluster.Name,
 		},
 		"spec": map[string]interface{}{
 			"clusterRoleBinding": map[string]interface{}{
 				"subject": map[string]interface{}{
-					"kind":      "ServiceAccount",
-					"name":      managedClusterMTV,
-					"namespace": msaaNamespace, // The ServiceAccount is created here on the ManagedCluster
+					payloadKeyKind:      "ServiceAccount",
+					payloadKeyName:      managedClusterMTV,
+					payloadKeyNamespace: msaaNamespace, // The ServiceAccount is created here on the ManagedCluster
 				},
 				"roleRef": map[string]interface{}{ // This is the documented RBAC for the MTV Provider
-					"kind":     "ClusterRole",
-					"name":     "cluster-admin",
-					"apiGroup": "rbac.authorization.k8s.io",
+					payloadKeyKind: "ClusterRole",
+					payloadKeyName: "cluster-admin",
+					"apiGroup":     "rbac.authorization.k8s.io",
 				},
 			},
 		},

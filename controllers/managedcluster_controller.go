@@ -35,7 +35,10 @@ type ManagedClusterReconciler struct {
 }
 
 const (
-	ProviderCRDName = "providers.forklift.konveyor.io"
+	ProviderCRDName           = "providers.forklift.konveyor.io"
+	cnvOperatorInstallEnabled = "true"
+	msaaDeploymentName        = "managed-serviceaccount-addon-agent"
+	providerSecretURLKey      = "url"
 )
 
 //nolint:revive // Added by kubebuilder
@@ -103,7 +106,7 @@ func (r *ManagedClusterReconciler) shouldCleanupCluster(managedCluster *clusterv
 	if managedCluster.GetDeletionTimestamp() != nil {
 		return true
 	}
-	return managedCluster.GetLabels()[LabelCNVOperatorInstall] != "true" &&
+	return managedCluster.GetLabels()[LabelCNVOperatorInstall] != cnvOperatorInstallEnabled &&
 		controllerutil.ContainsFinalizer(managedCluster, ManagedClusterFinalizer)
 }
 
@@ -114,7 +117,7 @@ func (r *ManagedClusterReconciler) shouldManageCluster(managedCluster *clusterv1
 	// would fall through here and we'd try to add a finalizer — which Kubernetes forbids
 	// on objects that already have a deletionTimestamp.
 	return managedCluster.GetDeletionTimestamp() == nil &&
-		managedCluster.GetLabels()[LabelCNVOperatorInstall] == "true"
+		managedCluster.GetLabels()[LabelCNVOperatorInstall] == cnvOperatorInstallEnabled
 }
 
 // reconcileActiveCluster handles the complete lifecycle for active MTV clusters
@@ -272,19 +275,19 @@ func (r *ManagedClusterReconciler) reconcileClusterPermissions(
 // findMsaaDeploymentNs finds the namespace where the managed-serviceaccount-addon-agent deployment runs
 func (r *ManagedClusterReconciler) findMsaaDeploymentNs(ctx context.Context) (string, error) {
 	var depList appsv1.DeploymentList
-	if err := r.Client.List(ctx, &depList); err != nil {
+	if err := r.List(ctx, &depList); err != nil {
 		return "", err
 	}
 
 	for _, d := range depList.Items {
-		if d.Name == "managed-serviceaccount-addon-agent" {
+		if d.Name == msaaDeploymentName {
 			return d.Namespace, nil
 		}
 	}
 
 	return "", errors.NewNotFound(
 		schema.GroupResource{Group: "apps", Resource: "deployments"},
-		"managed-serviceaccount-addon-agent",
+		msaaDeploymentName,
 	)
 }
 
@@ -312,7 +315,7 @@ func (r *ManagedClusterReconciler) handleProviderSecrets(
 		Namespace: managedClusterNamespace,
 	}
 
-	if err := r.Client.Get(ctx, namespacedName, ogSecret); err != nil {
+	if err := r.Get(ctx, namespacedName, ogSecret); err != nil {
 		log.Error(err, "Failed to retrieve ManagedServiceAccount secret")
 		return err
 	}
@@ -347,7 +350,7 @@ func (r *ManagedClusterReconciler) syncProviderSecret(
 		},
 		Data: map[string][]byte{
 			"insecureSkipVerify": []byte("false"),
-			"url":                []byte(clusterURL),
+			providerSecretURLKey: []byte(clusterURL),
 		},
 	}
 
@@ -357,7 +360,7 @@ func (r *ManagedClusterReconciler) syncProviderSecret(
 		Namespace: MTVIntegrationsNamespace,
 	}
 
-	if err := r.Client.Get(ctx, namespacedName, providerSecret); err != nil &&
+	if err := r.Get(ctx, namespacedName, providerSecret); err != nil &&
 		!errors.IsNotFound(err) {
 		log.Error(err, "Failed to retrieve Provider secret")
 		return err
@@ -438,7 +441,7 @@ func (r *ManagedClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				// List all ManagedClusters and enqueue a reconcile for each
 				var reqs []reconcile.Request
 				var mcList clusterv1.ManagedClusterList
-				if err := r.Client.List(ctx, &mcList); err != nil {
+				if err := r.List(ctx, &mcList); err != nil {
 					log.Error(err, "Failed to list ManagedClusters on Provider CRD event")
 					return nil
 				}
@@ -582,7 +585,7 @@ func managedClusterMTVName(name string) string {
 func (r *ManagedClusterReconciler) checkProviderCRD(ctx context.Context) (bool, error) {
 	// Check if the Provider CRD is established
 	crd := &apiextensionsv1.CustomResourceDefinition{}
-	err := r.Client.Get(ctx, types.NamespacedName{Name: ProviderCRDName}, crd)
+	err := r.Get(ctx, types.NamespacedName{Name: ProviderCRDName}, crd)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return false, nil
