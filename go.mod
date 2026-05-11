@@ -3,7 +3,7 @@ module github.com/stolostron/mtv-integrations
 go 1.25.2
 
 require (
-	github.com/kubev2v/forklift v0.0.0-20260511073938-6a8317f7c2ed
+	github.com/kubev2v/forklift v0.0.0-20260511180337-abefdf391aaf
 	github.com/onsi/ginkgo/v2 v2.28.3
 	github.com/onsi/gomega v1.40.0
 	github.com/stretchr/testify v1.11.1
