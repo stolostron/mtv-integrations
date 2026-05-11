@@ -8,12 +8,12 @@ import (
 	"os/exec"
 	"strings"
 
-	. "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/ginkgo/v2"
 )
 
 // Kubectl execute kubectl cli
 func Kubectl(args ...string) {
-	GinkgoHelper()
+	ginkgo.GinkgoHelper()
 
 	cmd := exec.Command("kubectl", args...)
 
@@ -23,12 +23,12 @@ func Kubectl(args ...string) {
 
 	err := cmd.Start()
 	if err != nil {
-		Fail(fmt.Sprintf("Error: %v", err))
+		ginkgo.Fail(fmt.Sprintf("Error: %v", err))
 	}
 
 	err = cmd.Wait()
 	if err != nil {
-		Fail(fmt.Sprintf("`kubectl %s` failed: %s", strings.Join(args, " "), stderr.String()))
+		ginkgo.Fail(fmt.Sprintf("`kubectl %s` failed: %s", strings.Join(args, " "), stderr.String()))
 	}
 }
 
