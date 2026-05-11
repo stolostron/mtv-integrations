@@ -23,7 +23,7 @@ jobs:
           make test
       - name: Upload unit test artifacts
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: artifacts-unit
           path: |
@@ -50,7 +50,7 @@ jobs:
           make run-webhook-test
       - name: Upload webhook test artifacts
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: artifacts-webhook
           path: |
@@ -74,7 +74,7 @@ jobs:
           make run-provider-crd-test
       - name: Upload provider CRD artifacts
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: artifacts-provider-crd
           path: |
@@ -100,7 +100,7 @@ jobs:
           make run-e2e-test
       - name: Upload e2e test artifacts
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: artifacts-e2e
           path: |
@@ -117,7 +117,7 @@ jobs:
     steps:
       - run: echo "Running SonarCloud analysis..."
       - name: Download test artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           pattern: artifacts-*
           merge-multiple: true
