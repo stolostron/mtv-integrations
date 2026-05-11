@@ -20,6 +20,13 @@ spec:
           namespace: openshift-cnv
         updateStrategy:
           type: CreateOnly
+      - resourceIdentifier:
+          group: policy.open-cluster-management.io
+          resource: operatorpolicies
+          name: kubevirt-hyperconverged-operator
+          namespace: open-cluster-management-policies
+        updateStrategy:
+          type: CreateOnly
     workload:
       manifests:
         - apiVersion: hco.kubevirt.io/v1beta1
