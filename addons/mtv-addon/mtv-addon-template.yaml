@@ -12,6 +12,14 @@ spec:
           name: mtv-operator-ca
           namespace: openshift-mtv
   agentSpec:
+    manifestConfigs:
+      - resourceIdentifier:
+          group: policy.open-cluster-management.io
+          resource: operatorpolicies
+          name: mtv-operator
+          namespace: open-cluster-management-policies
+        updateStrategy:
+          type: CreateOnly
     workload:
       manifests:
         - apiVersion: policy.open-cluster-management.io/v1beta1
@@ -28,7 +36,7 @@ spec:
               targetNamespaces:
                   - openshift-mtv
             subscription:
-              channel: release-v2.11
+              channel: release-v2.12
               name: mtv-operator
               namespace: openshift-mtv
             upgradeApproval: Automatic
