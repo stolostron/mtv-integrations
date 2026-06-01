@@ -3,6 +3,7 @@ package migrationadvisor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -126,6 +127,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.evaluate(ctx, req)
 	if err != nil {
+		var notFound *VMNotFoundError
+		if errors.As(err, &notFound) {
+			log.Info("VM or cluster not found", "error", err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		log.Error(err, "evaluation failed")
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return

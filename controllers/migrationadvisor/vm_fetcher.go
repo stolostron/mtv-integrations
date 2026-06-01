@@ -16,6 +16,16 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
+// VMNotFoundError is returned by VMFetcher when the requested cluster does not
+// exist as a hub namespace, or when the VMI/PVC cannot be found on the spoke.
+// ServeHTTP maps this to HTTP 400 Bad Request so callers get a meaningful error
+// instead of a generic 500.
+type VMNotFoundError struct {
+	msg string
+}
+
+func (e *VMNotFoundError) Error() string { return e.msg }
+
 var (
 	managedClusterViewGVR = schema.GroupVersionResource{
 		Group:    "view.open-cluster-management.io",
@@ -114,6 +124,11 @@ func (f *VMFetcher) fetchVMIViaMCV(
 		Namespace(req.ClusterName).
 		Create(ctx, mcv, metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
+		if apierrors.IsNotFound(err) {
+			return nil, &VMNotFoundError{
+				msg: fmt.Sprintf("cluster %q not found on hub (no namespace %q)", req.ClusterName, req.ClusterName),
+			}
+		}
 		return nil, fmt.Errorf("create ManagedClusterView: %w", err)
 	}
 
@@ -187,7 +202,13 @@ func (f *VMFetcher) watchMCVResult(
 				condStatus, _, _ := unstructured.NestedString(cond, "status")
 				condReason, _, _ := unstructured.NestedString(cond, "reason")
 				if condType == "Processing" && condStatus == "False" {
-					// Processing=False with no result means a hard error (e.g. resource not found).
+					// GetResourceFailed means the spoke could not find the requested resource.
+					// Treat it as a user-visible "not found" rather than a server error.
+					if condReason == "GetResourceFailed" {
+						return nil, &VMNotFoundError{
+							msg: fmt.Sprintf("ManagedClusterView %s/%s: resource not found on spoke", clusterNamespace, mcvName),
+						}
+					}
 					return nil, fmt.Errorf("ManagedClusterView %s/%s failed: %s", clusterNamespace, mcvName, condReason)
 				}
 			}
