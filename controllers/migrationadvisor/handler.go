@@ -87,6 +87,12 @@ type Handler struct {
 	// SearchAPIEndpoint and ThanosHost allow overriding service endpoints for local testing.
 	SearchAPIEndpoint string
 	ThanosHost        string
+	// ServiceCAPath is the path to the OpenShift service CA bundle PEM file.
+	// It is added to the HTTP client's trust pool alongside the system root CAs so
+	// that both in-cluster HTTPS services (service CA) and external Routes
+	// (ingress/router CA via system pool) can be verified.
+	// Defaults to DefaultServiceCAPath when empty.
+	ServiceCAPath string
 	// CacheTTL controls how long cluster-wide data (node metrics, SCs) is cached.
 	// Defaults to defaultCacheTTL (30 s) when zero.
 	CacheTTL time.Duration
@@ -255,8 +261,12 @@ func (h *Handler) getClusterSnapshot(ctx context.Context) (clusterSnapshot, erro
 // Ceph metrics are non-fatal: missing Ceph data causes the scorer to use a
 // neutral storage score rather than failing the whole request.
 func (h *Handler) fetchFreshClusterData(ctx context.Context) (clusterSnapshot, error) {
-	obsClient := &ObservabilityClient{RestConfig: h.RestConfig, ThanosHost: h.ThanosHost}
-	searchClient := &SearchClient{RestConfig: h.RestConfig, SearchAPIEndpoint: h.SearchAPIEndpoint}
+	obsClient := &ObservabilityClient{RestConfig: h.RestConfig, ThanosHost: h.ThanosHost, ServiceCAPath: h.ServiceCAPath}
+	searchClient := &SearchClient{
+		RestConfig:        h.RestConfig,
+		SearchAPIEndpoint: h.SearchAPIEndpoint,
+		ServiceCAPath:     h.ServiceCAPath,
+	}
 
 	var (
 		refreshNodes api.ClusterNodeMetrics

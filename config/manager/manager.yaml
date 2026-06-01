@@ -55,6 +55,7 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
+          - --service-ca-path=/var/run/secrets/service-ca/service-ca.crt
         image: controller:latest
         imagePullPolicy: IfNotPresent
         name: controller
@@ -87,10 +88,12 @@ spec:
           requests:
             cpu: 10m
             memory: 64Mi
-        # Webhook
         volumeMounts:
           - mountPath: /tmp/k8s-webhook-server/serving-certs
             name: cert
+            readOnly: true
+          - mountPath: /var/run/secrets/service-ca
+            name: service-ca
             readOnly: true
       # Webhook
       volumes: 
@@ -98,5 +101,8 @@ spec:
           secret:
             defaultMode: 420
             secretName: mtv-plan-webhook-server-cert
+        - name: service-ca
+          configMap:
+            name: mtv-integrations-service-ca
       serviceAccountName: mtv-integrations-manager
       terminationGracePeriodSeconds: 10
