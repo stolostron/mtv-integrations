@@ -35,6 +35,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -167,7 +168,38 @@ func resolveAdvisorEndpoints(
 	return searchAPIEndpoint, thanosHost, nil
 }
 
+// waitForForkliftCRDsAndRestart polls the REST mapper until forklift.konveyor.io/v1beta1
+// resources become available (i.e. Forklift is installed on the hub), then exits with
+// code 0 so the pod's restart policy brings it back up and SetupWithManager succeeds.
+//
+// This is the standard pattern for controllers with optional CRD dependencies: rather
+// than doing complex dynamic controller registration, we rely on the pod restart to
+// cleanly re-run startup with the CRDs now present.
+func waitForForkliftCRDsAndRestart(ctx context.Context, restMapper meta.RESTMapper) {
+	const pollInterval = 30 * time.Second
+	setupLog.Info("Watching for Forklift CRDs to appear; will restart when ready",
+		"pollInterval", pollInterval)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_, err := restMapper.RESTMapping(
+				schema.GroupKind{Group: "forklift.konveyor.io", Kind: "Plan"},
+				"v1beta1",
+			)
+			if err == nil {
+				setupLog.Info("Forklift CRDs detected; restarting to enable plan controller")
+				os.Exit(0)
+			}
+		}
+	}
+}
+
 func setupControllers(
+	ctx context.Context,
 	mgr ctrl.Manager,
 	dynamicClient dynamic.Interface,
 	enableWebhook bool,
@@ -185,7 +217,17 @@ func setupControllers(
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
-		return fmt.Errorf("plan controller: %w", err)
+		// Forklift CRDs (forklift.konveyor.io/v1beta1) are not installed on every
+		// hub cluster — they only exist when MTV/Forklift is deployed on the hub.
+		// Treat a "no matches" discovery error as a soft failure: log a warning,
+		// start a background watcher, and continue.  All other errors are fatal.
+		if !meta.IsNoMatchError(err) {
+			return fmt.Errorf("plan controller: %w", err)
+		}
+		setupLog.Info("Forklift CRDs not found on this cluster; plan controller disabled "+
+			"(install MTV/Forklift on the hub to enable plan ownership)",
+			"apiGroup", "forklift.konveyor.io/v1beta1")
+		go waitForForkliftCRDsAndRestart(ctx, mgr.GetRESTMapper())
 	}
 
 	if !enableWebhook {
@@ -441,7 +483,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = setupControllers(mgr, dynamicClient, enableWebhook, webhookServer); err != nil {
+	sigCtx := ctrl.SetupSignalHandler()
+
+	if err = setupControllers(sigCtx, mgr, dynamicClient, enableWebhook, webhookServer); err != nil {
 		setupLog.Error(err, "unable to create controller")
 		os.Exit(1)
 	}
@@ -481,7 +525,7 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(sigCtx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
