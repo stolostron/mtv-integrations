@@ -1,0 +1,30 @@
+apiVersion: forklift.konveyor.io/v1beta1
+kind: Plan
+metadata:
+  name: test-plan-no-label
+  namespace: mtv-integrations
+spec:
+  map:
+    network:
+      apiVersion: forklift.konveyor.io/v1beta1
+      kind: NetworkMap
+      name: test-networkmap-cclm
+      namespace: mtv-integrations
+    storage:
+      apiVersion: forklift.konveyor.io/v1beta1
+      kind: StorageMap
+      name: test-storagemap-cclm
+      namespace: mtv-integrations
+  provider:
+    source:
+      apiVersion: forklift.konveyor.io/v1beta1
+      kind: Provider
+      name: source-provider
+      namespace: mtv-integrations
+    destination:
+      apiVersion: forklift.konveyor.io/v1beta1
+      kind: Provider
+      name: dest-provider
+      namespace: mtv-integrations
+  targetNamespace: mtv-integrations
+  vms: []

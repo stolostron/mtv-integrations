@@ -275,7 +275,7 @@ func TestScoreExcludesUnsupportedStorage(t *testing.T) {
 	node := api.NodeMetrics{
 		NodeName:            "worker-1",
 		AllocatableCPUCores: 16, RequestedCPUCores: 4,
-		AllocatableMemBytes: 32 * int64(1 << 30), RequestedMemBytes: 8 * int64(1 << 30),
+		AllocatableMemBytes: 32 * int64(1<<30), RequestedMemBytes: 8 * int64(1<<30),
 	}
 
 	tests := []struct {
@@ -307,8 +307,8 @@ func TestScoreExcludesUnsupportedStorage(t *testing.T) {
 				SourceVM: api.SourceVMInfo{
 					Cluster:     "source",
 					CPUCores:    2,
-					MemoryBytes: 4 * int64(1 << 30),
-					Volumes:     []api.VMVolumeInfo{{StorageClass: tt.storageClass, SizeBytes: 10 * int64(1 << 30)}},
+					MemoryBytes: 4 * int64(1<<30),
+					Volumes:     []api.VMVolumeInfo{{StorageClass: tt.storageClass, SizeBytes: 10 * int64(1<<30)}},
 				},
 				ClusterSCs: map[string][]SCProvisioner{
 					tt.clusterName: {{Name: tt.storageClass, Provisioner: tt.provisioner}},

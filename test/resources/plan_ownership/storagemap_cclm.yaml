@@ -1,0 +1,16 @@
+apiVersion: forklift.konveyor.io/v1beta1
+kind: StorageMap
+metadata:
+  name: test-storagemap-cclm
+  namespace: mtv-integrations
+  labels:
+    app.kubernetes.io/created-by: cclm
+spec:
+  map: []
+  provider:
+    source:
+      name: ""
+      namespace: ""
+    destination:
+      name: ""
+      namespace: ""

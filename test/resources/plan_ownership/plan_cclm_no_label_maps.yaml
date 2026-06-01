@@ -1,0 +1,32 @@
+apiVersion: forklift.konveyor.io/v1beta1
+kind: Plan
+metadata:
+  name: test-plan-cclm-no-label-maps
+  namespace: mtv-integrations
+  labels:
+    app.kubernetes.io/created-by: cclm
+spec:
+  map:
+    network:
+      apiVersion: forklift.konveyor.io/v1beta1
+      kind: NetworkMap
+      name: test-networkmap-no-label
+      namespace: mtv-integrations
+    storage:
+      apiVersion: forklift.konveyor.io/v1beta1
+      kind: StorageMap
+      name: test-storagemap-cclm
+      namespace: mtv-integrations
+  provider:
+    source:
+      apiVersion: forklift.konveyor.io/v1beta1
+      kind: Provider
+      name: source-provider
+      namespace: mtv-integrations
+    destination:
+      apiVersion: forklift.konveyor.io/v1beta1
+      kind: Provider
+      name: dest-provider
+      namespace: mtv-integrations
+  targetNamespace: mtv-integrations
+  vms: []

@@ -1,0 +1,14 @@
+apiVersion: forklift.konveyor.io/v1beta1
+kind: NetworkMap
+metadata:
+  name: test-networkmap-no-label
+  namespace: mtv-integrations
+spec:
+  map: []
+  provider:
+    source:
+      name: ""
+      namespace: ""
+    destination:
+      name: ""
+      namespace: ""

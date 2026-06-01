@@ -30,10 +30,12 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	"github.com/stolostron/mtv-integrations/controllers"
 	"github.com/stolostron/mtv-integrations/controllers/migrationadvisor"
+	plancontroller "github.com/stolostron/mtv-integrations/controllers/plan"
 	miwebhook "github.com/stolostron/mtv-integrations/webhook"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -41,6 +43,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	auth "open-cluster-management.io/managed-serviceaccount/apis/authentication/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -135,12 +138,164 @@ func discoverAdvisorEndpoints(
 	return searchEndpoint, thanosEndpoint, nil
 }
 
-// nolint:gocyclo
 // runnableFunc adapts a plain function to the ctrl.Runnable interface so it
 // can be added to the controller-runtime manager's lifecycle.
 type runnableFunc func(ctx context.Context) error
 
 func (f runnableFunc) Start(ctx context.Context) error { return f(ctx) }
+
+func resolveAdvisorEndpoints(
+	dynamicClient dynamic.Interface,
+	searchAPIEndpoint, thanosHost string,
+) (string, string, error) {
+	if searchAPIEndpoint != "" && thanosHost != "" {
+		return searchAPIEndpoint, thanosHost, nil
+	}
+
+	discoverCtx, discoverCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer discoverCancel()
+	discoveredSearch, discoveredThanos, err := discoverAdvisorEndpoints(
+		discoverCtx, dynamicClient, searchAPIEndpoint, thanosHost)
+	if err != nil {
+		return "", "", err
+	}
+	if searchAPIEndpoint == "" {
+		searchAPIEndpoint = discoveredSearch
+	}
+	if thanosHost == "" {
+		thanosHost = discoveredThanos
+	}
+	return searchAPIEndpoint, thanosHost, nil
+}
+
+// waitForForkliftCRDsAndRestart polls the REST mapper until forklift.konveyor.io/v1beta1
+// resources become available (i.e. Forklift is installed on the hub), then exits with
+// code 0 so the pod's restart policy brings it back up and SetupWithManager succeeds.
+//
+// This is the standard pattern for controllers with optional CRD dependencies: rather
+// than doing complex dynamic controller registration, we rely on the pod restart to
+// cleanly re-run startup with the CRDs now present.
+func waitForForkliftCRDsAndRestart(ctx context.Context, restMapper meta.RESTMapper) {
+	const pollInterval = 30 * time.Second
+	setupLog.Info("Watching for Forklift CRDs to appear; will restart when ready",
+		"pollInterval", pollInterval)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_, err := restMapper.RESTMapping(
+				schema.GroupKind{Group: "forklift.konveyor.io", Kind: "Plan"},
+				"v1beta1",
+			)
+			if err == nil {
+				setupLog.Info("Forklift CRDs detected; restarting to enable plan controller")
+				os.Exit(0)
+			}
+		}
+	}
+}
+
+func setupControllers(
+	ctx context.Context,
+	mgr ctrl.Manager,
+	dynamicClient dynamic.Interface,
+	enableWebhook bool,
+	webhookServer webhook.Server,
+) error {
+	if err := (&controllers.ManagedClusterReconciler{
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		DynamicClient: dynamicClient,
+	}).SetupWithManager(mgr); err != nil {
+		return fmt.Errorf("managed cluster controller: %w", err)
+	}
+
+	if err := (&plancontroller.PlanReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		// Forklift CRDs (forklift.konveyor.io/v1beta1) are not installed on every
+		// hub cluster — they only exist when MTV/Forklift is deployed on the hub.
+		// Treat a "no matches" discovery error as a soft failure: log a warning,
+		// start a background watcher, and continue.  All other errors are fatal.
+		if !meta.IsNoMatchError(err) {
+			return fmt.Errorf("plan controller: %w", err)
+		}
+		setupLog.Info("Forklift CRDs not found on this cluster; plan controller disabled "+
+			"(install MTV/Forklift on the hub to enable plan ownership)",
+			"apiGroup", "forklift.konveyor.io/v1beta1")
+		go waitForForkliftCRDsAndRestart(ctx, mgr.GetRESTMapper())
+	}
+
+	if !enableWebhook {
+		return nil
+	}
+	if err := mgr.Add(webhookServer); err != nil {
+		return err
+	}
+	webhookServer.Register("/validate-plan", miwebhook.ValidateWebhook(mgr.GetClient(), *mgr.GetConfig()))
+	return nil
+}
+
+func setupAdvisorServer(
+	mgr ctrl.Manager,
+	dynamicClient dynamic.Interface,
+	restConfig *rest.Config,
+	searchAPIEndpoint, thanosHost, advisorAddr string,
+	advisorCacheTTL time.Duration,
+) error {
+	advisorHandler := &migrationadvisor.Handler{
+		DynamicClient:     dynamicClient,
+		RestConfig:        restConfig,
+		SearchAPIEndpoint: searchAPIEndpoint,
+		ThanosHost:        thanosHost,
+		CacheTTL:          advisorCacheTTL,
+	}
+	advisorMux := http.NewServeMux()
+	advisorMux.Handle("/api/v1/migration-targets", advisorHandler)
+	advisorMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		obsClient := &migrationadvisor.ObservabilityClient{
+			RestConfig: restConfig,
+			ThanosHost: thanosHost,
+		}
+		if err := obsClient.CheckHealth(r.Context()); err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	advisorServer := &http.Server{
+		Addr:              advisorAddr,
+		Handler:           advisorMux,
+		ReadTimeout:       30 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	return mgr.Add(runnableFunc(func(ctx context.Context) error {
+		setupLog.Info("Starting migration advisor API server", "addr", advisorAddr)
+		errCh := make(chan error, 1)
+		go func() { errCh <- advisorServer.ListenAndServe() }()
+		select {
+		case <-ctx.Done():
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			return advisorServer.Shutdown(shutdownCtx)
+		case err := <-errCh:
+			return err
+		}
+	}))
+}
 
 func main() {
 	var metricsAddr string
@@ -322,96 +477,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Auto-discover Route URLs when flags were not set explicitly.
-	// When running in-cluster the Routes are reachable but unnecessary (the
-	// in-cluster service URLs are faster); when running locally the Routes are
-	// the only way to reach the services.
-	if searchAPIEndpoint == "" || thanosHost == "" {
-		discoverCtx, discoverCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer discoverCancel()
-		discoveredSearch, discoveredThanos, err := discoverAdvisorEndpoints(
-			discoverCtx, dynamicClient, searchAPIEndpoint, thanosHost)
-		if err != nil {
-			setupLog.Error(err, "failed to discover advisor endpoints")
-			os.Exit(1)
-		}
-		if searchAPIEndpoint == "" {
-			searchAPIEndpoint = discoveredSearch
-		}
-		if thanosHost == "" {
-			thanosHost = discoveredThanos
-		}
-	}
-
-	if err = (&controllers.ManagedClusterReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		DynamicClient: dynamicClient,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "MTV-ManagedCluster")
+	searchAPIEndpoint, thanosHost, err = resolveAdvisorEndpoints(dynamicClient, searchAPIEndpoint, thanosHost)
+	if err != nil {
+		setupLog.Error(err, "failed to discover advisor endpoints")
 		os.Exit(1)
 	}
 
-	if enableWebhook {
-		if err := mgr.Add(webhookServer); err != nil {
-			os.Exit(1)
-		}
+	sigCtx := ctrl.SetupSignalHandler()
 
-		webhookServer.Register("/validate-plan", miwebhook.ValidateWebhook(mgr.GetClient(), *mgr.GetConfig()))
+	if err = setupControllers(sigCtx, mgr, dynamicClient, enableWebhook, webhookServer); err != nil {
+		setupLog.Error(err, "unable to create controller")
+		os.Exit(1)
 	}
 
-	// Start a dedicated plain-HTTP server for the migration advisor API.
-	// This is completely separate from the webhook server so no TLS certificate
-	// is required, and the advisor works regardless of whether --enable-webhook
-	// is set.
-	advisorHandler := &migrationadvisor.Handler{
-		DynamicClient:     dynamicClient,
-		RestConfig:        mgr.GetConfig(),
-		SearchAPIEndpoint: searchAPIEndpoint,
-		ThanosHost:        thanosHost,
-		CacheTTL:          advisorCacheTTL,
-	}
-	advisorMux := http.NewServeMux()
-	advisorMux.Handle("/api/v1/migration-targets", advisorHandler)
-	advisorMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		obsClient := &migrationadvisor.ObservabilityClient{
-			RestConfig: mgr.GetConfig(),
-			ThanosHost: thanosHost,
-		}
-		if err := obsClient.CheckHealth(r.Context()); err != nil {
-			http.Error(w, err.Error(), http.StatusServiceUnavailable)
-			return
-		}
-
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
-	advisorServer := &http.Server{
-		Addr:              advisorAddr,
-		Handler:           advisorMux,
-		ReadTimeout:       30 * time.Second,
-		ReadHeaderTimeout: 10 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
-	if err := mgr.Add(runnableFunc(func(ctx context.Context) error {
-		setupLog.Info("Starting migration advisor API server", "addr", advisorAddr)
-		errCh := make(chan error, 1)
-		go func() { errCh <- advisorServer.ListenAndServe() }()
-		select {
-		case <-ctx.Done():
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			return advisorServer.Shutdown(shutdownCtx)
-		case err := <-errCh:
-			return err
-		}
-	})); err != nil {
+	if err := setupAdvisorServer(
+		mgr, dynamicClient, mgr.GetConfig(),
+		searchAPIEndpoint, thanosHost, advisorAddr, advisorCacheTTL,
+	); err != nil {
 		setupLog.Error(err, "unable to add advisor server to manager")
 		os.Exit(1)
 	}
@@ -443,7 +525,7 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(sigCtx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
