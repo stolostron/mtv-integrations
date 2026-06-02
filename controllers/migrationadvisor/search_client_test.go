@@ -72,7 +72,6 @@ func TestListStorageClassProvisionersByCluster(t *testing.T) {
 	assert.Equal(t, "rbd.csi.ceph.com", result["cluster-b"][0].Provisioner)
 }
 
-
 func TestListStorageClassProvisionersByCluster_Pagination(t *testing.T) {
 	// First response returns exactly searchPageSize items so a second page is requested.
 	// Second response returns fewer items, ending the loop.

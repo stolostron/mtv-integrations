@@ -20,6 +20,31 @@ Go module `github.com/stolostron/mtv-integrations`. It ships:
 - **Helm chart** under [`charts/`](charts/) and **kustomize** under [`config/`](config/) (manager deployment, ClusterRole, webhook TLS, ValidatingWebhookConfiguration).
 - **OCM addons** under `addons/` (CNV / MTV addon manifests; separate from the core controller).
 
+## Mandatory checklist — run BEFORE finishing any task
+
+Every task that touches Go code or RBAC **must** complete these two steps. Do not consider the task done until both pass.
+
+### 1. Lint — always run after code changes
+
+```bash
+golangci-lint run ./...
+```
+
+Fix every reported issue before finishing. Do not skip or suppress linter errors unless there is a documented reason.
+
+### 2. RBAC — always update BOTH files when adding permissions
+
+Any new API group, resource, or verb needed by a controller or webhook **must** be added to **both**:
+
+| File | Purpose |
+|------|---------|
+| [`charts/templates/mtv-integrations-clusterrole.yaml`](charts/templates/mtv-integrations-clusterrole.yaml) | Production Helm install |
+| [`config/rbac/role.yaml`](config/rbac/role.yaml) | Kustomize / CI e2e deploy |
+
+These two files must always be in sync. Updating one without the other will break either the Helm install or the e2e CI.
+
+---
+
 ## Helm charts (`charts/`) — keep in sync with `config/`
 
 Shipped installs use **Helm** (`charts/templates/`). **Kustomize** under `config/` is the alternate layout. When changing deployables, update **both** unless the change is intentionally chart-only or kustomize-only.

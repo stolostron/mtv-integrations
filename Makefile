@@ -5,6 +5,9 @@
 # - use environment variables to overwrite this value (e.g export VERSION=0.0.2)
 VERSION ?= 0.0.1
 
+FORKLIFT_CRD_REF ?= main
+CLUSTER_LIFECYCLE_API_REF ?= main
+
 TARGETOS ?= linux
 TARGETARCH ?= amd64
 
@@ -253,10 +256,12 @@ install-resources:
 	-kubectl create ns open-cluster-management
 	kubectl apply -f ./config/webhook_test/
 	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/cluster-permission/refs/heads/main/config/crds/rbac.open-cluster-management.io_clusterpermissions.yaml
-	kubectl apply -f https://raw.githubusercontent.com/kubev2v/forklift/refs/heads/main/operator/config/crd/bases/forklift.konveyor.io_plans.yaml
+	kubectl apply -f https://raw.githubusercontent.com/kubev2v/forklift/$(FORKLIFT_CRD_REF)/operator/config/crd/bases/forklift.konveyor.io_plans.yaml
+	kubectl apply -f https://raw.githubusercontent.com/kubev2v/forklift/$(FORKLIFT_CRD_REF)/operator/config/crd/bases/forklift.konveyor.io_networkmaps.yaml
+	kubectl apply -f https://raw.githubusercontent.com/kubev2v/forklift/$(FORKLIFT_CRD_REF)/operator/config/crd/bases/forklift.konveyor.io_storagemaps.yaml
 	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/api/main/cluster/v1/0000_00_clusters.open-cluster-management.io_managedclusters.crd.yaml
 	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/multicloud-integrations/refs/heads/main/deploy/crds/clusters.open-cluster-management.io_managedserviceaccounts.crd.yaml
-	kubectl apply -f https://raw.githubusercontent.com/stolostron/cluster-lifecycle-api/main/view/v1beta1/view.open-cluster-management.io_managedclusterviews.crd.yaml
+	kubectl apply -f https://raw.githubusercontent.com/stolostron/cluster-lifecycle-api/$(CLUSTER_LIFECYCLE_API_REF)/view/v1beta1/view.open-cluster-management.io_managedclusterviews.crd.yaml
 
 kind-load-image: docker-build
 	kind load image-archive <($(CONTAINER_TOOL) save $(IMG)) --name $(KIND_NAME)

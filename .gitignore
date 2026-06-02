@@ -37,6 +37,7 @@ tls.key
 kubeconfig_e2e
 mtv_integrations_instrumented
 
+report.json
 report_*.json
 
 coverage_profiles/*
