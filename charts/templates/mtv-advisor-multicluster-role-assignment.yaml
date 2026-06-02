@@ -1,0 +1,35 @@
+---
+# MulticlusterRoleAssignment: binds the mtv-integrations-manager hub SA to the
+# mtv-advisor-storageclasses-reader ClusterRole on every CNV-enabled managed
+# cluster (selected by the openshift-cnv Placement).
+#
+# This is required so the ACM Search API can return StorageClass inventory from
+# managed clusters when the migration advisor queries it.  The Search API
+# impersonates the calling SA (mtv-integrations-manager) and filters results to
+# only resources the SA is allowed to access.  Without this binding the SA has
+# no access to spoke StorageClasses and the Search API returns an empty result.
+#
+# Flow:
+#   MulticlusterRoleAssignment
+#     └─► ClusterPermission (per spoke, hub namespace = spoke name)
+#           └─► ClusterRoleBinding on the spoke (propagated by ACM)
+#                 subject: SA mtv-integrations-manager (open-cluster-management)
+#                 roleRef:  ClusterRole mtv-advisor-storageclasses-reader
+apiVersion: rbac.open-cluster-management.io/v1beta1
+kind: MulticlusterRoleAssignment
+metadata:
+  name: mtv-advisor-storageclasses
+  namespace: {{ .Values.global.namespace }}
+spec:
+  subject:
+    kind: ServiceAccount
+    name: mtv-integrations-manager
+    namespace: {{ .Values.global.namespace }}
+  roleAssignments:
+  - name: storageclasses-reader
+    clusterRole: mtv-advisor-storageclasses-reader
+    clusterSelection:
+      type: placements
+      placements:
+      - name: openshift-cnv
+        namespace: {{ .Values.global.namespace }}

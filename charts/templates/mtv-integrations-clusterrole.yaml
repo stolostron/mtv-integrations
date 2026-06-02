@@ -132,6 +132,14 @@ rules:
   verbs:
   - impersonate
 - apiGroups:
+  - storage.k8s.io
+  resources:
+  - storageclasses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - monitoring.coreos.com
   resourceNames:
   - k8s

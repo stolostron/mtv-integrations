@@ -1,0 +1,51 @@
+---
+# ConfigurationPolicy: push a read-only StorageClass ClusterRole to every
+# managed cluster that has CNV installed (label acm/cnv-operator-install=true).
+# The MulticlusterRoleAssignment below then binds the mtv-integrations-manager
+# hub SA to this ClusterRole on each spoke, so the ACM Search API can return
+# StorageClass data from those clusters when the migration advisor queries it.
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: mtv-advisor-storageclasses-reader
+  namespace: {{ .Values.global.namespace }}
+  annotations:
+    policy.open-cluster-management.io/standards: ""
+    policy.open-cluster-management.io/categories: ""
+    policy.open-cluster-management.io/controls: ""
+spec:
+  disabled: false
+  policy-templates:
+  - objectDefinition:
+      apiVersion: policy.open-cluster-management.io/v1
+      kind: ConfigurationPolicy
+      metadata:
+        name: mtv-advisor-storageclasses-reader
+      spec:
+        remediationAction: enforce
+        severity: low
+        object-templates:
+        - complianceType: musthave
+          objectDefinition:
+            apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRole
+            metadata:
+              name: mtv-advisor-storageclasses-reader
+            rules:
+            - apiGroups: ["storage.k8s.io"]
+              resources: ["storageclasses"]
+              verbs: ["get", "list", "watch"]
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: mtv-advisor-storageclasses-reader
+  namespace: {{ .Values.global.namespace }}
+placementRef:
+  name: openshift-cnv
+  apiGroup: cluster.open-cluster-management.io
+  kind: Placement
+subjects:
+- name: mtv-advisor-storageclasses-reader
+  apiGroup: policy.open-cluster-management.io
+  kind: Policy
