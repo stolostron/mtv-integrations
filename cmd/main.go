@@ -100,8 +100,8 @@ func discoverAdvisorEndpoints(
 	routeHost := func(namespace, routeName string) (string, error) {
 		obj, err := dynClient.Resource(routeGVR).Namespace(namespace).Get(ctx, routeName, metav1.GetOptions{})
 		if err != nil {
-			if apierrors.IsNotFound(err) {
-				setupLog.Info("Route not found, will use in-cluster default",
+			if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
+				setupLog.Info("Route not accessible, will use in-cluster default",
 					"namespace", namespace, "route", routeName)
 				return "", nil
 			}
