@@ -154,8 +154,9 @@ func (h *Handler) evaluate(ctx context.Context, req api.MigrationTargetRequest) 
 	log := ctrl.LoggerFrom(ctx)
 
 	var (
-		sourceVM *api.SourceVMInfo
-		snapshot clusterSnapshot
+		sourceVM    *api.SourceVMInfo
+		snapshot    clusterSnapshot
+		vmNotFound  *VMNotFoundError
 	)
 
 	g, gctx := errgroup.WithContext(ctx)
@@ -164,6 +165,9 @@ func (h *Handler) evaluate(ctx context.Context, req api.MigrationTargetRequest) 
 	g.Go(func() error {
 		vm, err := (&VMFetcher{DynamicClient: h.DynamicClient}).FetchVMInfo(gctx, req)
 		if err != nil {
+			// Capture VM-not-found separately so it takes priority over cluster
+			// data errors (e.g. "0 schedulable nodes") when both branches fail.
+			errors.As(err, &vmNotFound)
 			return err
 		}
 		sourceVM = vm
@@ -181,6 +185,11 @@ func (h *Handler) evaluate(ctx context.Context, req api.MigrationTargetRequest) 
 	})
 
 	if err := g.Wait(); err != nil {
+		// Prefer VMNotFoundError so callers get a 400 rather than a generic 500
+		// when both branches fail (e.g. cluster absent + no schedulable nodes).
+		if vmNotFound != nil {
+			return nil, vmNotFound
+		}
 		return nil, err
 	}
 
