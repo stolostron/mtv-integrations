@@ -202,11 +202,12 @@ func (f *VMFetcher) watchMCVResult(
 				condStatus, _, _ := unstructured.NestedString(cond, "status")
 				condReason, _, _ := unstructured.NestedString(cond, "reason")
 				if condType == "Processing" && condStatus == "False" {
-					// GetResourceFailed means the spoke could not find the requested resource.
-					// Treat it as a user-visible "not found" rather than a server error.
-					if condReason == "GetResourceFailed" {
+					// GetResourceFailed or ResourceTypeInvalid means the spoke could not find
+					// the requested resource (or the resource type doesn't exist there).
+					// Both are user-visible "not found" rather than server errors.
+					if condReason == "GetResourceFailed" || condReason == "ResourceTypeInvalid" {
 						return nil, &VMNotFoundError{
-							msg: fmt.Sprintf("ManagedClusterView %s/%s: resource not found on spoke", clusterNamespace, mcvName),
+							msg: fmt.Sprintf("ManagedClusterView %s/%s failed: %s", clusterNamespace, mcvName, condReason),
 						}
 					}
 					return nil, fmt.Errorf("ManagedClusterView %s/%s failed: %s", clusterNamespace, mcvName, condReason)

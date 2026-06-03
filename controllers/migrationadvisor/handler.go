@@ -147,50 +147,59 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // evaluate runs the full pipeline: fetch VM info, gather cluster data, score.
 //
 // Branch A (VM-specific, always fresh) and Branch B (cluster-wide, 30 s cached)
-// run concurrently via errgroup. The outer variables (sourceVM, snapshot) are
-// written from within the goroutines but are safe to read after g.Wait() because
-// errgroup.Wait() provides a happens-before guarantee.
+// run concurrently via sync.WaitGroup so both always run to completion.
+// This ensures VMNotFoundError from Branch A is never silenced by a fast
+// Branch B failure (e.g. "0 schedulable nodes") that would cancel the context.
 func (h *Handler) evaluate(ctx context.Context, req api.MigrationTargetRequest) (*api.MigrationTargetResponse, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	var (
-		sourceVM    *api.SourceVMInfo
-		snapshot    clusterSnapshot
-		vmNotFound  *VMNotFoundError
+		sourceVM   *api.SourceVMInfo
+		snapshot   clusterSnapshot
+		vmNotFound *VMNotFoundError
+		vmErr      error
+		snapErr    error
 	)
 
-	g, gctx := errgroup.WithContext(ctx)
+	var wg sync.WaitGroup
+	wg.Add(2)
 
 	// ── Branch A: VM-specific data (always fresh, O(1) network calls) ─────────
-	g.Go(func() error {
-		vm, err := (&VMFetcher{DynamicClient: h.DynamicClient}).FetchVMInfo(gctx, req)
+	go func() {
+		defer wg.Done()
+		vm, err := (&VMFetcher{DynamicClient: h.DynamicClient}).FetchVMInfo(ctx, req)
 		if err != nil {
 			// Capture VM-not-found separately so it takes priority over cluster
 			// data errors (e.g. "0 schedulable nodes") when both branches fail.
 			errors.As(err, &vmNotFound)
-			return err
+			vmErr = err
+			return
 		}
 		sourceVM = vm
-		return nil
-	})
+	}()
 
 	// ── Branch B: cluster-wide data (cached, refreshed at most every configured TTL) ──
-	g.Go(func() error {
-		s, err := h.getClusterSnapshot(gctx)
+	go func() {
+		defer wg.Done()
+		s, err := h.getClusterSnapshot(ctx)
 		if err != nil {
-			return err
+			snapErr = err
+			return
 		}
 		snapshot = s
-		return nil
-	})
+	}()
 
-	if err := g.Wait(); err != nil {
-		// Prefer VMNotFoundError so callers get a 400 rather than a generic 500
-		// when both branches fail (e.g. cluster absent + no schedulable nodes).
-		if vmNotFound != nil {
-			return nil, vmNotFound
-		}
-		return nil, err
+	wg.Wait()
+
+	// Prefer VMNotFoundError → 400; then vmErr; then snapErr → 500.
+	if vmNotFound != nil {
+		return nil, vmNotFound
+	}
+	if vmErr != nil {
+		return nil, vmErr
+	}
+	if snapErr != nil {
+		return nil, snapErr
 	}
 
 	log.Info("fetched source VM info",
