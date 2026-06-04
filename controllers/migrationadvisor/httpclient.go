@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Red Hat, Inc.
+// Copyright Contributors to the Open Cluster Management project
+
 package migrationadvisor
 
 import (
@@ -40,34 +43,46 @@ func buildHTTPClient(restConfig *rest.Config, serviceCAPath string) (*http.Clien
 
 	// Cluster API server CA
 	if len(restConfig.CAData) > 0 {
-		pool.AppendCertsFromPEM(restConfig.CAData)
+		if !pool.AppendCertsFromPEM(restConfig.CAData) {
+			return nil, fmt.Errorf("no certs found in restConfig.CAData")
+		}
 	}
 	if restConfig.CAFile != "" {
 		data, err := os.ReadFile(restConfig.CAFile)
 		if err != nil {
 			return nil, fmt.Errorf("read cluster CA file %s: %w", restConfig.CAFile, err)
 		}
-		pool.AppendCertsFromPEM(data)
-	}
-
-	// OpenShift service CA — non-fatal when absent (unit tests, vanilla k8s)
-	if serviceCAPath != "" {
-		if data, err := os.ReadFile(serviceCAPath); err == nil {
-			pool.AppendCertsFromPEM(data)
+		if !pool.AppendCertsFromPEM(data) {
+			return nil, fmt.Errorf("no certs found in cluster CA file %s", restConfig.CAFile)
 		}
 	}
 
-	baseTx := &http.Transport{
-		TLSClientConfig: &tls.Config{RootCAs: pool},
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
+	// OpenShift service CA — silently optional when absent (unit tests, vanilla k8s),
+	// but any other read error or unparseable content is fatal.
+	if serviceCAPath != "" {
+		data, err := os.ReadFile(serviceCAPath)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("read service CA %s: %w", serviceCAPath, err)
+			}
+		} else if !pool.AppendCertsFromPEM(data) {
+			return nil, fmt.Errorf("no certs found in service CA bundle %s", serviceCAPath)
+		}
 	}
+
+	// Clone DefaultTransport so proxy settings and other defaults are preserved;
+	// only override the fields that must differ.
+	//nolint:forcetypeassert // http.DefaultTransport is always *http.Transport
+	baseTx := http.DefaultTransport.(*http.Transport).Clone()
+	baseTx.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS13}
+	baseTx.DialContext = (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}).DialContext
+	baseTx.TLSHandshakeTimeout = 10 * time.Second
+	baseTx.ExpectContinueTimeout = 1 * time.Second
+	baseTx.MaxIdleConns = 100
+	baseTx.IdleConnTimeout = 90 * time.Second
 
 	// Wrap with auth round-trippers (bearer token, impersonation, etc.)
 	transportCfg, err := restConfig.TransportConfig()

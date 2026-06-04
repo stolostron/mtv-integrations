@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Red Hat, Inc.
+// Copyright Contributors to the Open Cluster Management project
+
 package api
 
 // MigrationTargetRequest holds the parameters for querying migration target candidates.

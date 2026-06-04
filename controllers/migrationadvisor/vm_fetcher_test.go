@@ -1,15 +1,22 @@
+// Copyright (c) 2026 Red Hat, Inc.
+// Copyright Contributors to the Open Cluster Management project
+
 package migrationadvisor
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stolostron/mtv-integrations/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	k8stesting "k8s.io/client-go/testing"
@@ -139,8 +146,8 @@ func mcvWithProcessingFalse(reason string) *unstructured.Unstructured {
 	}}
 }
 
-// injectWatchEvent registers a watch reactor that fires obj after a brief delay.
-func injectWatchEvent(fakeClient *dynamicfake.FakeDynamicClient, eventType watch.EventType, obj runtime.Object) {
+// injectWatchEvent registers a watch reactor that fires a Modified event for obj after a brief delay.
+func injectWatchEvent(fakeClient *dynamicfake.FakeDynamicClient, obj runtime.Object) {
 	fw := watch.NewFake()
 	fakeClient.PrependWatchReactor("managedclusterviews",
 		func(_ k8stesting.Action) (bool, watch.Interface, error) {
@@ -148,18 +155,13 @@ func injectWatchEvent(fakeClient *dynamicfake.FakeDynamicClient, eventType watch
 		})
 	go func() {
 		time.Sleep(10 * time.Millisecond)
-		switch eventType {
-		case watch.Modified:
-			fw.Modify(obj)
-		case watch.Added:
-			fw.Add(obj)
-		}
+		fw.Modify(obj)
 	}()
 }
 
 func TestWatchMCVResult_WithResult(t *testing.T) {
 	fakeClient := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
-	injectWatchEvent(fakeClient, watch.Modified, mcvWithResult(map[string]interface{}{
+	injectWatchEvent(fakeClient, mcvWithResult(map[string]interface{}{
 		keySpec: map[string]interface{}{"storageClassName": "ceph-rbd"},
 	}))
 
@@ -172,7 +174,7 @@ func TestWatchMCVResult_WithResult(t *testing.T) {
 
 func TestWatchMCVResult_ProcessingFalse(t *testing.T) {
 	fakeClient := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
-	injectWatchEvent(fakeClient, watch.Modified, mcvWithProcessingFalse("ResourceNotFound"))
+	injectWatchEvent(fakeClient, mcvWithProcessingFalse("ResourceNotFound"))
 
 	fetcher := &VMFetcher{DynamicClient: fakeClient}
 	_, err := fetcher.watchMCVResult(context.Background(), "test-cluster", "test-mcv")
@@ -218,7 +220,7 @@ func TestWatchMCVResult_ChannelClosed(t *testing.T) {
 
 func TestFetchPVCStorageClass(t *testing.T) {
 	fakeClient := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
-	injectWatchEvent(fakeClient, watch.Modified, mcvWithResult(map[string]interface{}{
+	injectWatchEvent(fakeClient, mcvWithResult(map[string]interface{}{
 		keySpec: map[string]interface{}{"storageClassName": "fast-ceph"},
 	}))
 
@@ -395,4 +397,79 @@ func TestExtractResourceRequests(t *testing.T) {
 			assert.Equal(t, tt.wantMemB, mem, "memBytes")
 		})
 	}
+}
+
+// ── VMNotFoundError ───────────────────────────────────────────────────────────
+
+// TestVMNotFoundError_Error verifies the error string is returned unchanged.
+func TestVMNotFoundError_Error(t *testing.T) {
+	e := &VMNotFoundError{msg: "cluster not found on hub"}
+	assert.Equal(t, "cluster not found on hub", e.Error())
+}
+
+// ── fetchVMIViaMCV ────────────────────────────────────────────────────────────
+
+// TestFetchVMIViaMCV_ClusterNotFound verifies that a NotFound on MCV Create is
+// wrapped as a VMNotFoundError (so ServeHTTP returns 400 instead of 500).
+func TestFetchVMIViaMCV_ClusterNotFound(t *testing.T) {
+	fakeClient := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+	fakeClient.PrependReactor("create", "managedclusterviews",
+		func(_ k8stesting.Action) (handled bool, obj runtime.Object, err error) {
+			return true, nil, apierrors.NewNotFound(
+				schema.GroupResource{
+					Group:    managedClusterViewGVR.Group,
+					Resource: managedClusterViewGVR.Resource,
+				},
+				"nonexistent-cluster",
+			)
+		})
+
+	fetcher := &VMFetcher{DynamicClient: fakeClient}
+	_, err := fetcher.fetchVMIViaMCV(context.Background(), api.MigrationTargetRequest{
+		ClusterName: "nonexistent-cluster", VMNamespace: "default", VMName: "vm1",
+	})
+	require.Error(t, err)
+	var notFound *VMNotFoundError
+	assert.True(t, errors.As(err, &notFound), "expected VMNotFoundError, got %T: %v", err, err)
+}
+
+// TestFetchVMIViaMCV_CreateError verifies that a generic Create error (not
+// NotFound) is propagated as a plain error, not a VMNotFoundError.
+func TestFetchVMIViaMCV_CreateError(t *testing.T) {
+	fakeClient := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+	fakeClient.PrependReactor("create", "managedclusterviews",
+		func(_ k8stesting.Action) (handled bool, obj runtime.Object, err error) {
+			return true, nil, fmt.Errorf("hub API server unavailable")
+		})
+
+	fetcher := &VMFetcher{DynamicClient: fakeClient}
+	_, err := fetcher.fetchVMIViaMCV(context.Background(), api.MigrationTargetRequest{
+		ClusterName: "c1", VMNamespace: "default", VMName: "vm1",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "create ManagedClusterView")
+	var notFound *VMNotFoundError
+	assert.False(t, errors.As(err, &notFound), "should NOT be VMNotFoundError")
+}
+
+// ── FetchVMInfo ───────────────────────────────────────────────────────────────
+
+// TestFetchVMInfo_Success verifies that a successful MCV watch round-trip
+// produces a valid SourceVMInfo with the correct name, namespace, and cluster.
+func TestFetchVMInfo_Success(t *testing.T) {
+	fakeClient := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+	injectWatchEvent(fakeClient, mcvWithResult(map[string]interface{}{
+		"apiVersion": "kubevirt.io/v1",
+		"kind":       "VirtualMachineInstance",
+		"metadata":   map[string]interface{}{"name": "vm1", "namespace": "default"},
+	}))
+
+	fetcher := &VMFetcher{DynamicClient: fakeClient}
+	info, err := fetcher.FetchVMInfo(context.Background(), api.MigrationTargetRequest{
+		ClusterName: "hub-cluster", VMNamespace: "default", VMName: "vm1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "vm1", info.Name)
+	assert.Equal(t, "default", info.Namespace)
+	assert.Equal(t, "hub-cluster", info.Cluster)
 }

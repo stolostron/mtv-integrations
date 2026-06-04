@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Red Hat, Inc.
+// Copyright Contributors to the Open Cluster Management project
+
 package migrationadvisor
 
 import (
@@ -166,4 +169,20 @@ func TestListStorageClassProvisionersByCluster_BadJSON(t *testing.T) {
 
 	_, err := newSearchClient(srv.URL).ListStorageClassProvisionersByCluster(context.Background())
 	assert.Error(t, err)
+}
+
+// ── serviceCAPath ─────────────────────────────────────────────────────────────
+
+// TestSearchClient_ServiceCAPath_Default verifies that serviceCAPath() falls
+// back to DefaultServiceCAPath when ServiceCAPath is empty.
+func TestSearchClient_ServiceCAPath_Default(t *testing.T) {
+	c := &SearchClient{}
+	assert.Equal(t, DefaultServiceCAPath, c.serviceCAPath())
+}
+
+// TestSearchClient_ServiceCAPath_Override verifies that an explicit
+// ServiceCAPath is returned unchanged.
+func TestSearchClient_ServiceCAPath_Override(t *testing.T) {
+	c := &SearchClient{ServiceCAPath: "/custom/ca.crt"}
+	assert.Equal(t, "/custom/ca.crt", c.serviceCAPath())
 }
