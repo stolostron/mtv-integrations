@@ -1,20 +1,23 @@
 ---
-# MulticlusterRoleAssignment: binds the mtv-integrations-manager hub SA to the
-# mtv-advisor-storageclasses-reader ClusterRole on every CNV-enabled managed
-# cluster (selected by the openshift-cnv Placement).
+# MulticlusterRoleAssignment: binds the mtv-integrations-manager hub SA to
+# acm-vm-extended:admin on every CNV-enabled managed cluster (selected by the
+# openshift-cnv Placement).
 #
-# This is required so the ACM Search API can return StorageClass inventory from
-# managed clusters when the migration advisor queries it.  The Search API
-# impersonates the calling SA (mtv-integrations-manager) and filters results to
-# only resources the SA is allowed to access.  Without this binding the SA has
-# no access to spoke StorageClasses and the Search API returns an empty result.
+# The ACM Search API uses RBAC impersonation to filter cross-cluster results:
+# it only returns resources on a spoke if the calling SA is authorized to access
+# them there.  Binding the SA to acm-vm-extended:admin on each spoke grants the
+# necessary spoke-level access (StorageClasses, PVCs, nodes, CDI, HCO, etc.)
+# so the migration advisor can query StorageClass inventory across clusters.
+#
+# The hub-side clusterview.open-cluster-management.io/managedclusters permission
+# (in the manager ClusterRole) unlocks the cross-cluster Search API gate.
 #
 # Flow:
 #   MulticlusterRoleAssignment
 #     └─► ClusterPermission (per spoke, hub namespace = spoke name)
-#           └─► ClusterRoleBinding on the spoke (propagated by ACM)
+#           └─► ClusterRoleBinding on the spoke (propagated by ACM ManifestWork)
 #                 subject: SA mtv-integrations-manager (open-cluster-management)
-#                 roleRef:  ClusterRole mtv-advisor-storageclasses-reader
+#                 roleRef:  ClusterRole acm-vm-extended:admin
 apiVersion: rbac.open-cluster-management.io/v1beta1
 kind: MulticlusterRoleAssignment
 metadata:
@@ -26,8 +29,8 @@ spec:
     name: mtv-integrations-manager
     namespace: {{ .Values.global.namespace }}
   roleAssignments:
-  - name: storageclasses-reader
-    clusterRole: mtv-advisor-storageclasses-reader
+  - name: acm-vm-extended-admin
+    clusterRole: acm-vm-extended:admin
     clusterSelection:
       type: placements
       placements:
