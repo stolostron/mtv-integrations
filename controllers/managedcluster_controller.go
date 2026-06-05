@@ -1,9 +1,6 @@
 // Copyright (c) 2026 Red Hat, Inc.
 // Copyright Contributors to the Open Cluster Management project
 
-// Copyright (c) 2026 Red Hat, Inc.
-// Copyright Contributors to the Open Cluster Management project
-
 package controllers
 
 import (
