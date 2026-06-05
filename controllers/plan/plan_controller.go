@@ -1,7 +1,11 @@
+// Copyright (c) 2026 Red Hat, Inc.
+// Copyright Contributors to the Open Cluster Management project
+
 package plan
 
 import (
 	"context"
+	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -93,7 +97,8 @@ func (r *PlanReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		{gvk: storageMapGVK, name: stgName, ns: stgNS},
 	} {
 		if err := r.reconcileMapRef(ctx, plan, ref.gvk, ref.name, ref.ns); err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, fmt.Errorf("reconcile %s %s/%s for plan %s/%s: %w",
+				ref.gvk.Kind, ref.ns, ref.name, plan.GetNamespace(), plan.GetName(), err)
 		}
 	}
 
@@ -131,7 +136,7 @@ func (r *PlanReconciler) reconcileMapRef(
 		logger.Info(gvk.Kind+" not found, skipping", "name", name, "namespace", ns)
 		return nil
 	case err != nil:
-		return err
+		return fmt.Errorf("get %s %s/%s: %w", gvk.Kind, ns, name, err)
 	case obj.GetLabels()[labelCreatedBy] != labelCCLMValue:
 		logger.Info(gvk.Kind+" does not have cclm label, skipping", "name", name)
 		return nil
@@ -141,24 +146,41 @@ func (r *PlanReconciler) reconcileMapRef(
 }
 
 // setOwner stamps plan as an OwnerReference on obj. The call is idempotent —
-// if the same OwnerReference already exists it is a no-op patch. If a
-// different controller already owns the resource, it is logged and skipped.
+// if the same OwnerReference already exists it is a no-op patch. If a stale
+// controller ref from a re-created Plan (same Kind+Name, different UID) is
+// found it is removed so the current Plan can take ownership. If a genuinely
+// different controller owns the resource the call is skipped.
 func (r *PlanReconciler) setOwner(ctx context.Context, plan, obj *unstructured.Unstructured) error {
 	logger := log.FromContext(ctx)
 
 	planUID := plan.GetUID()
-	for _, ref := range obj.GetOwnerReferences() {
+	planName := plan.GetName()
+	refs := obj.GetOwnerReferences()
+	filtered := refs[:0:0] // same backing array capacity, zero length
+	for _, ref := range refs {
 		if ref.UID == planUID {
-			return nil // already owned by this plan, idempotent
+			return nil // already owned by this exact Plan, idempotent
 		}
 		if ref.Controller != nil && *ref.Controller {
+			if ref.Kind == planGVK.Kind && ref.Name == planName {
+				// Stale ref: same Plan name re-created with a new UID — drop it
+				// so we can stamp the current Plan as owner below.
+				logger.Info("removing stale Plan owner reference",
+					"kind", obj.GetKind(), "name", obj.GetName(),
+					"staleUID", ref.UID, "newUID", planUID)
+				continue
+			}
+			// A genuinely different controller owns this resource; leave it alone.
 			logger.Info("resource already owned by another controller, skipping",
 				"kind", obj.GetKind(), "name", obj.GetName(), "owner", ref.Name)
 			return nil
 		}
+		filtered = append(filtered, ref)
 	}
-
+	// Snapshot the original object BEFORE any mutation so the MergePatch diff
+	// captures both the stale-ref removal and the new-ref addition in one patch.
 	patch := client.MergeFrom(obj.DeepCopy())
+	obj.SetOwnerReferences(filtered)
 
 	isController := true
 	blockOwnerDeletion := true
@@ -172,7 +194,8 @@ func (r *PlanReconciler) setOwner(ctx context.Context, plan, obj *unstructured.U
 	}))
 
 	if err := r.Patch(ctx, obj, patch); err != nil {
-		return err
+		return fmt.Errorf("patch owner reference on %s %s/%s: %w",
+			obj.GetKind(), obj.GetNamespace(), obj.GetName(), err)
 	}
 	logger.Info("Set owner reference", "kind", obj.GetKind(), "name", obj.GetName())
 	return nil

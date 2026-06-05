@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Red Hat, Inc.
+// Copyright Contributors to the Open Cluster Management project
+
 package migrationadvisor
 
 import (
@@ -21,6 +24,16 @@ type SearchClient struct {
 	RestConfig *rest.Config
 	// SearchAPIEndpoint overrides searchAPIService for testing.
 	SearchAPIEndpoint string
+	// ServiceCAPath is the path to the OpenShift service CA bundle PEM file.
+	// Defaults to DefaultServiceCAPath when empty.
+	ServiceCAPath string
+}
+
+func (s *SearchClient) serviceCAPath() string {
+	if s.ServiceCAPath != "" {
+		return s.ServiceCAPath
+	}
+	return DefaultServiceCAPath
 }
 
 func (s *SearchClient) endpoint() string {
@@ -64,7 +77,7 @@ const searchPageSize = 1000
 func (s *SearchClient) ListStorageClassProvisionersByCluster(
 	ctx context.Context,
 ) (map[string][]SCProvisioner, error) {
-	httpClient, err := rest.HTTPClientFor(s.RestConfig)
+	httpClient, err := buildHTTPClient(s.RestConfig, s.serviceCAPath())
 	if err != nil {
 		return nil, fmt.Errorf("build HTTP client: %w", err)
 	}

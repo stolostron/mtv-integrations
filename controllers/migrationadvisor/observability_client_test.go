@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Red Hat, Inc.
+// Copyright Contributors to the Open Cluster Management project
+
 package migrationadvisor
 
 import (
@@ -387,6 +390,20 @@ func TestObservabilityClientHTTPClientCached(t *testing.T) {
 	assert.NoError(t, err1)
 	assert.NoError(t, err2)
 	assert.Same(t, hc1, hc2, "httpClient must return the same instance")
+}
+
+// TestObservabilityClient_ServiceCAPath_Default verifies that serviceCAPath()
+// falls back to DefaultServiceCAPath when ServiceCAPath is empty.
+func TestObservabilityClient_ServiceCAPath_Default(t *testing.T) {
+	c := &ObservabilityClient{}
+	assert.Equal(t, DefaultServiceCAPath, c.serviceCAPath())
+}
+
+// TestObservabilityClient_ServiceCAPath_Override verifies that an explicit
+// ServiceCAPath is returned unchanged.
+func TestObservabilityClient_ServiceCAPath_Override(t *testing.T) {
+	c := &ObservabilityClient{ServiceCAPath: "/custom/ca.crt"}
+	assert.Equal(t, "/custom/ca.crt", c.serviceCAPath())
 }
 
 // ── helpers for building fake promResponse structs ───────────────────────────

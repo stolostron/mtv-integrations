@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Red Hat, Inc.
+// Copyright Contributors to the Open Cluster Management project
+
 package migrationadvisor
 
 import (
@@ -15,6 +18,16 @@ import (
 	"k8s.io/client-go/dynamic"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
+
+// VMNotFoundError is returned by VMFetcher when the requested cluster does not
+// exist as a hub namespace, or when the VMI/PVC cannot be found on the spoke.
+// ServeHTTP maps this to HTTP 400 Bad Request so callers get a meaningful error
+// instead of a generic 500.
+type VMNotFoundError struct {
+	msg string
+}
+
+func (e *VMNotFoundError) Error() string { return e.msg }
 
 var (
 	managedClusterViewGVR = schema.GroupVersionResource{
@@ -114,6 +127,11 @@ func (f *VMFetcher) fetchVMIViaMCV(
 		Namespace(req.ClusterName).
 		Create(ctx, mcv, metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
+		if apierrors.IsNotFound(err) {
+			return nil, &VMNotFoundError{
+				msg: fmt.Sprintf("cluster %q not found on hub (no namespace %q)", req.ClusterName, req.ClusterName),
+			}
+		}
 		return nil, fmt.Errorf("create ManagedClusterView: %w", err)
 	}
 
@@ -187,7 +205,14 @@ func (f *VMFetcher) watchMCVResult(
 				condStatus, _, _ := unstructured.NestedString(cond, "status")
 				condReason, _, _ := unstructured.NestedString(cond, "reason")
 				if condType == "Processing" && condStatus == "False" {
-					// Processing=False with no result means a hard error (e.g. resource not found).
+					// GetResourceFailed or ResourceTypeInvalid means the spoke could not find
+					// the requested resource (or the resource type doesn't exist there).
+					// Both are user-visible "not found" rather than server errors.
+					if condReason == "GetResourceFailed" || condReason == "ResourceTypeInvalid" {
+						return nil, &VMNotFoundError{
+							msg: fmt.Sprintf("ManagedClusterView %s/%s failed: %s", clusterNamespace, mcvName, condReason),
+						}
+					}
 					return nil, fmt.Errorf("ManagedClusterView %s/%s failed: %s", clusterNamespace, mcvName, condReason)
 				}
 			}

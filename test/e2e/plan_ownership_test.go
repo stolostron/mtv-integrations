@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Red Hat, Inc.
+// Copyright Contributors to the Open Cluster Management project
+
 package e2e
 
 import (
@@ -19,6 +22,7 @@ var _ = Describe("Plan ownership", Label("plan_ownership"), Ordered, func() {
 		mtvNs            = "mtv-integrations"
 		assertTimeout    = 60 * time.Second
 		assertConsistent = 10 * time.Second
+		assertInterval   = 1 * time.Second
 	)
 
 	var (
@@ -54,10 +58,19 @@ var _ = Describe("Plan ownership", Label("plan_ownership"), Ordered, func() {
 		return false, nil
 	}
 
-	// resourceGone returns true when the resource no longer exists.
-	resourceGone := func(ctx context.Context, gvr schema.GroupVersionResource, name string) bool {
+	// resourceGone returns (true, nil) when the resource no longer exists,
+	// (false, nil) while it is still present, and (false, err) on any other error
+	// so that callers can fail fast instead of treating client/auth errors as
+	// "not gone yet".
+	resourceGone := func(ctx context.Context, gvr schema.GroupVersionResource, name string) (bool, error) {
 		_, err := dynamicClientHub.Resource(gvr).Namespace(mtvNs).Get(ctx, name, metav1.GetOptions{})
-		return apierrors.IsNotFound(err)
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return false, nil
 	}
 
 	BeforeAll(func() {
@@ -92,6 +105,29 @@ var _ = Describe("Plan ownership", Label("plan_ownership"), Ordered, func() {
 		utils.Kubectl("delete", "-f", path+"/storagemap_cclm.yaml", "--ignore-not-found")
 		utils.Kubectl("delete", "-f", path+"/networkmap_no_label.yaml", "--ignore-not-found")
 		utils.Kubectl("delete", "-f", path+"/storagemap_no_label.yaml", "--ignore-not-found")
+
+		// Block until every fixture is truly gone. kubectl delete --wait waits for
+		// explicitly-deleted objects but GC-cascaded children (maps owned by a Plan)
+		// may still be in Terminating when the next spec starts. resourceGone returns
+		// true immediately for objects that were never created in this spec.
+		ctx := context.Background()
+		for _, f := range []struct {
+			gvr  schema.GroupVersionResource
+			name string
+		}{
+			{planGVR, "test-plan-cclm"},
+			{planGVR, "test-plan-no-label"},
+			{planGVR, "test-plan-cclm-no-label-maps"},
+			{networkMapGVR, "test-networkmap-cclm"},
+			{networkMapGVR, "test-networkmap-no-label"},
+			{storageMapGVR, "test-storagemap-cclm"},
+			{storageMapGVR, "test-storagemap-no-label"},
+		} {
+			Eventually(func() (bool, error) {
+				return resourceGone(ctx, f.gvr, f.name)
+			}, assertTimeout, assertInterval).Should(BeTrue(),
+				"fixture should be gone before next spec: "+f.name)
+		}
 	})
 
 	It("sets OwnerReference on NetworkMap and StorageMap when both have cclm label", func() {
@@ -105,13 +141,13 @@ var _ = Describe("Plan ownership", Label("plan_ownership"), Ordered, func() {
 			ok, err := hasOwnerRef(ctx, networkMapGVR, "test-networkmap-cclm", "test-plan-cclm")
 			Expect(err).NotTo(HaveOccurred())
 			return ok
-		}, assertTimeout).Should(BeTrue(), "NetworkMap should have OwnerReference to the Plan")
+		}, assertTimeout, assertInterval).Should(BeTrue(), "NetworkMap should have OwnerReference to the Plan")
 
 		Eventually(func() bool {
 			ok, err := hasOwnerRef(ctx, storageMapGVR, "test-storagemap-cclm", "test-plan-cclm")
 			Expect(err).NotTo(HaveOccurred())
 			return ok
-		}, assertTimeout).Should(BeTrue(), "StorageMap should have OwnerReference to the Plan")
+		}, assertTimeout, assertInterval).Should(BeTrue(), "StorageMap should have OwnerReference to the Plan")
 	})
 
 	It("does NOT set OwnerReference when Plan lacks cclm label", func() {
@@ -125,13 +161,15 @@ var _ = Describe("Plan ownership", Label("plan_ownership"), Ordered, func() {
 			ok, err := hasOwnerRef(ctx, networkMapGVR, "test-networkmap-cclm", "test-plan-no-label")
 			Expect(err).NotTo(HaveOccurred())
 			return ok
-		}, assertConsistent).Should(BeFalse(), "NetworkMap should NOT have OwnerReference from unlabeled Plan")
+		}, assertConsistent, assertInterval).Should(BeFalse(),
+			"NetworkMap should NOT have OwnerReference from unlabeled Plan")
 
 		Consistently(func() bool {
 			ok, err := hasOwnerRef(ctx, storageMapGVR, "test-storagemap-cclm", "test-plan-no-label")
 			Expect(err).NotTo(HaveOccurred())
 			return ok
-		}, assertConsistent).Should(BeFalse(), "StorageMap should NOT have OwnerReference from unlabeled Plan")
+		}, assertConsistent, assertInterval).Should(BeFalse(),
+			"StorageMap should NOT have OwnerReference from unlabeled Plan")
 	})
 
 	It("does NOT set OwnerReference on a map that lacks cclm label", func() {
@@ -146,14 +184,14 @@ var _ = Describe("Plan ownership", Label("plan_ownership"), Ordered, func() {
 			ok, err := hasOwnerRef(ctx, storageMapGVR, "test-storagemap-cclm", "test-plan-cclm-no-label-maps")
 			Expect(err).NotTo(HaveOccurred())
 			return ok
-		}, assertTimeout).Should(BeTrue(), "StorageMap should have OwnerReference to the Plan")
+		}, assertTimeout, assertInterval).Should(BeTrue(), "StorageMap should have OwnerReference to the Plan")
 
 		// NetworkMap lacks the label → must NOT get an OwnerReference.
 		Consistently(func() bool {
 			ok, err := hasOwnerRef(ctx, networkMapGVR, "test-networkmap-no-label", "test-plan-cclm-no-label-maps")
 			Expect(err).NotTo(HaveOccurred())
 			return ok
-		}, assertConsistent).Should(BeFalse(), "NetworkMap without cclm label should NOT get OwnerReference")
+		}, assertConsistent, assertInterval).Should(BeFalse(), "NetworkMap without cclm label should NOT get OwnerReference")
 	})
 
 	It("deletes NetworkMap and StorageMap when the Plan is deleted", func() {
@@ -168,26 +206,26 @@ var _ = Describe("Plan ownership", Label("plan_ownership"), Ordered, func() {
 			ok, err := hasOwnerRef(ctx, networkMapGVR, "test-networkmap-cclm", "test-plan-cclm")
 			Expect(err).NotTo(HaveOccurred())
 			return ok
-		}, assertTimeout).Should(BeTrue(), "NetworkMap should have OwnerReference before deletion test")
+		}, assertTimeout, assertInterval).Should(BeTrue(), "NetworkMap should have OwnerReference before deletion test")
 		Eventually(func() bool {
 			ok, err := hasOwnerRef(ctx, storageMapGVR, "test-storagemap-cclm", "test-plan-cclm")
 			Expect(err).NotTo(HaveOccurred())
 			return ok
-		}, assertTimeout).Should(BeTrue(), "StorageMap should have OwnerReference before deletion test")
+		}, assertTimeout, assertInterval).Should(BeTrue(), "StorageMap should have OwnerReference before deletion test")
 
 		// Delete the Plan — Kubernetes GC cascades to owned resources.
 		utils.Kubectl("delete", "-f", path+"/plan_cclm.yaml")
 
-		Eventually(func() bool {
+		Eventually(func() (bool, error) {
 			return resourceGone(ctx, planGVR, "test-plan-cclm")
-		}, assertTimeout).Should(BeTrue(), "Plan should be deleted")
+		}, assertTimeout, assertInterval).Should(BeTrue(), "Plan should be deleted")
 
-		Eventually(func() bool {
+		Eventually(func() (bool, error) {
 			return resourceGone(ctx, networkMapGVR, "test-networkmap-cclm")
-		}, assertTimeout).Should(BeTrue(), "NetworkMap should be garbage-collected after Plan deletion")
+		}, assertTimeout, assertInterval).Should(BeTrue(), "NetworkMap should be garbage-collected after Plan deletion")
 
-		Eventually(func() bool {
+		Eventually(func() (bool, error) {
 			return resourceGone(ctx, storageMapGVR, "test-storagemap-cclm")
-		}, assertTimeout).Should(BeTrue(), "StorageMap should be garbage-collected after Plan deletion")
+		}, assertTimeout, assertInterval).Should(BeTrue(), "StorageMap should be garbage-collected after Plan deletion")
 	})
 })

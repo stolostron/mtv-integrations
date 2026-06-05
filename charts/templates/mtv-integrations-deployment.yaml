@@ -79,6 +79,7 @@ spec:
             - /manager
           args:
             - --health-probe-bind-address=:8081
+            - --service-ca-path=/var/run/secrets/service-ca/service-ca.crt
           image: {{ .Values.global.imageOverrides.mtv_integrations }}
           imagePullPolicy: "{{ .Values.global.pullPolicy }}"
           ports:
@@ -116,11 +117,17 @@ spec:
             - mountPath: /tmp/k8s-webhook-server/serving-certs
               name: cert
               readOnly: true
+            - mountPath: /var/run/secrets/service-ca
+              name: service-ca
+              readOnly: true
       volumes:
         - name: cert
           secret:
             defaultMode: 420
             secretName: mtv-plan-webhook-server-cert
+        - name: service-ca
+          configMap:
+            name: mtv-integrations-service-ca
       {{- if .Values.global.pullSecret }}
       imagePullSecrets:
         - name: {{ .Values.global.pullSecret }}

@@ -1,8 +1,12 @@
+// Copyright (c) 2026 Red Hat, Inc.
+// Copyright Contributors to the Open Cluster Management project
+
 package migrationadvisor
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -87,6 +91,12 @@ type Handler struct {
 	// SearchAPIEndpoint and ThanosHost allow overriding service endpoints for local testing.
 	SearchAPIEndpoint string
 	ThanosHost        string
+	// ServiceCAPath is the path to the OpenShift service CA bundle PEM file.
+	// It is added to the HTTP client's trust pool alongside the system root CAs so
+	// that both in-cluster HTTPS services (service CA) and external Routes
+	// (ingress/router CA via system pool) can be verified.
+	// Defaults to DefaultServiceCAPath when empty.
+	ServiceCAPath string
 	// CacheTTL controls how long cluster-wide data (node metrics, SCs) is cached.
 	// Defaults to defaultCacheTTL (30 s) when zero.
 	CacheTTL time.Duration
@@ -120,6 +130,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.evaluate(ctx, req)
 	if err != nil {
+		var notFound *VMNotFoundError
+		if errors.As(err, &notFound) {
+			log.Info("VM or cluster not found", "error", err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		log.Error(err, "evaluation failed")
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
@@ -134,41 +150,59 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // evaluate runs the full pipeline: fetch VM info, gather cluster data, score.
 //
 // Branch A (VM-specific, always fresh) and Branch B (cluster-wide, 30 s cached)
-// run concurrently via errgroup. The outer variables (sourceVM, snapshot) are
-// written from within the goroutines but are safe to read after g.Wait() because
-// errgroup.Wait() provides a happens-before guarantee.
+// run concurrently via sync.WaitGroup so both always run to completion.
+// This ensures VMNotFoundError from Branch A is never silenced by a fast
+// Branch B failure (e.g. "0 schedulable nodes") that would cancel the context.
 func (h *Handler) evaluate(ctx context.Context, req api.MigrationTargetRequest) (*api.MigrationTargetResponse, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	var (
-		sourceVM *api.SourceVMInfo
-		snapshot clusterSnapshot
+		sourceVM   *api.SourceVMInfo
+		snapshot   clusterSnapshot
+		vmNotFound *VMNotFoundError
+		vmErr      error
+		snapErr    error
 	)
 
-	g, gctx := errgroup.WithContext(ctx)
+	var wg sync.WaitGroup
+	wg.Add(2)
 
 	// ── Branch A: VM-specific data (always fresh, O(1) network calls) ─────────
-	g.Go(func() error {
-		vm, err := (&VMFetcher{DynamicClient: h.DynamicClient}).FetchVMInfo(gctx, req)
+	go func() {
+		defer wg.Done()
+		vm, err := (&VMFetcher{DynamicClient: h.DynamicClient}).FetchVMInfo(ctx, req)
 		if err != nil {
-			return err
+			// Capture VM-not-found separately so it takes priority over cluster
+			// data errors (e.g. "0 schedulable nodes") when both branches fail.
+			errors.As(err, &vmNotFound)
+			vmErr = err
+			return
 		}
 		sourceVM = vm
-		return nil
-	})
+	}()
 
 	// ── Branch B: cluster-wide data (cached, refreshed at most every configured TTL) ──
-	g.Go(func() error {
-		s, err := h.getClusterSnapshot(gctx)
+	go func() {
+		defer wg.Done()
+		s, err := h.getClusterSnapshot(ctx)
 		if err != nil {
-			return err
+			snapErr = err
+			return
 		}
 		snapshot = s
-		return nil
-	})
+	}()
 
-	if err := g.Wait(); err != nil {
-		return nil, err
+	wg.Wait()
+
+	// Prefer VMNotFoundError → 400; then vmErr; then snapErr → 500.
+	if vmNotFound != nil {
+		return nil, vmNotFound
+	}
+	if vmErr != nil {
+		return nil, vmErr
+	}
+	if snapErr != nil {
+		return nil, snapErr
 	}
 
 	log.Info("fetched source VM info",
@@ -255,8 +289,12 @@ func (h *Handler) getClusterSnapshot(ctx context.Context) (clusterSnapshot, erro
 // Ceph metrics are non-fatal: missing Ceph data causes the scorer to use a
 // neutral storage score rather than failing the whole request.
 func (h *Handler) fetchFreshClusterData(ctx context.Context) (clusterSnapshot, error) {
-	obsClient := &ObservabilityClient{RestConfig: h.RestConfig, ThanosHost: h.ThanosHost}
-	searchClient := &SearchClient{RestConfig: h.RestConfig, SearchAPIEndpoint: h.SearchAPIEndpoint}
+	obsClient := &ObservabilityClient{RestConfig: h.RestConfig, ThanosHost: h.ThanosHost, ServiceCAPath: h.ServiceCAPath}
+	searchClient := &SearchClient{
+		RestConfig:        h.RestConfig,
+		SearchAPIEndpoint: h.SearchAPIEndpoint,
+		ServiceCAPath:     h.ServiceCAPath,
+	}
 
 	var (
 		refreshNodes api.ClusterNodeMetrics

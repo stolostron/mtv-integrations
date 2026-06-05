@@ -1,8 +1,12 @@
+// Copyright (c) 2026 Red Hat, Inc.
+// Copyright Contributors to the Open Cluster Management project
+
 package migrationadvisor
 
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,10 +15,13 @@ import (
 	"github.com/stolostron/mtv-integrations/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/rest"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 func TestFilterClusterSCsByEligibility(t *testing.T) {
@@ -242,4 +249,132 @@ func TestListEligibleManagedClusters(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, eligible, 1)
 	assert.Contains(t, eligible, "cluster-enabled")
+}
+
+// ── evaluate / ServeHTTP full-pipeline ───────────────────────────────────────
+
+// mcvGR is the GroupResource used when constructing fake apierrors for the
+// managedclusterviews resource.
+var mcvGR = schema.GroupResource{
+	Group:    managedClusterViewGVR.Group,
+	Resource: managedClusterViewGVR.Resource,
+}
+
+// dummyManagedCluster is a placeholder ManagedCluster added to the fake dynamic
+// client so that dynamicfake can infer the ManagedClusterList kind and avoid
+// panicking when listEligibleManagedClusters calls List.
+var dummyManagedCluster = &unstructured.Unstructured{
+	Object: map[string]interface{}{
+		"apiVersion": "cluster.open-cluster-management.io/v1",
+		"kind":       "ManagedCluster",
+		"metadata":   map[string]interface{}{"name": "placeholder"},
+	},
+}
+
+// newFakeClientWithMCV creates a fake dynamic client that already knows the
+// ManagedCluster list kind (preventing a panic in listEligibleManagedClusters)
+// and applies the given reactors on top.
+func newFakeClientWithMCV(reactors ...k8stesting.ReactionFunc) *dynamicfake.FakeDynamicClient {
+	c := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), dummyManagedCluster)
+	for _, r := range reactors {
+		c.PrependReactor("create", "managedclusterviews", r)
+	}
+	return c
+}
+
+// TestServeHTTP_EvaluateVMNotFound verifies that when the ManagedClusterView
+// Create returns NotFound (cluster namespace absent on hub), ServeHTTP returns
+// HTTP 400 Bad Request (not 500).
+func TestServeHTTP_EvaluateVMNotFound(t *testing.T) {
+	thanosSrv := newFakeThanosServer(t)
+	defer thanosSrv.Close()
+	searchSrv := newFakeSearchServer(t, []string{})
+	defer searchSrv.Close()
+
+	fakeClient := newFakeClientWithMCV(
+		func(_ k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, apierrors.NewNotFound(mcvGR, "nonexistent-cluster")
+		},
+	)
+
+	h := &Handler{
+		DynamicClient:     fakeClient,
+		RestConfig:        &rest.Config{Host: thanosSrv.URL},
+		ThanosHost:        thanosSrv.URL,
+		SearchAPIEndpoint: searchSrv.URL + "/searchapi/graphql",
+	}
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/migration-targets?cluster=nonexistent-cluster&vmNamespace=default&vmName=vm1", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "not found")
+}
+
+// TestServeHTTP_EvaluateServerError verifies that a generic (non-VMNotFound)
+// error from Branch A causes ServeHTTP to return HTTP 500.
+func TestServeHTTP_EvaluateServerError(t *testing.T) {
+	thanosSrv := newFakeThanosServer(t)
+	defer thanosSrv.Close()
+	searchSrv := newFakeSearchServer(t, []string{})
+	defer searchSrv.Close()
+
+	fakeClient := newFakeClientWithMCV(
+		func(_ k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, fmt.Errorf("hub API server unavailable")
+		},
+	)
+
+	h := &Handler{
+		DynamicClient:     fakeClient,
+		RestConfig:        &rest.Config{Host: thanosSrv.URL},
+		ThanosHost:        thanosSrv.URL,
+		SearchAPIEndpoint: searchSrv.URL + "/searchapi/graphql",
+	}
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/migration-targets?cluster=c1&vmNamespace=default&vmName=vm1", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// TestServeHTTP_EvaluateSuccess verifies that a complete evaluate round-trip
+// (VMI watch result + Thanos + Search) returns HTTP 200 with a JSON body
+// containing the source VM info.
+func TestServeHTTP_EvaluateSuccess(t *testing.T) {
+	thanosSrv := newFakeThanosServer(t)
+	defer thanosSrv.Close()
+	searchSrv := newFakeSearchServer(t, []string{})
+	defer searchSrv.Close()
+
+	fakeClient := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), dummyManagedCluster)
+	injectWatchEvent(fakeClient, mcvWithResult(map[string]interface{}{
+		"apiVersion": "kubevirt.io/v1",
+		"kind":       "VirtualMachineInstance",
+		"metadata":   map[string]interface{}{"name": "vm1", "namespace": "default"},
+	}))
+
+	h := &Handler{
+		DynamicClient:     fakeClient,
+		RestConfig:        &rest.Config{Host: thanosSrv.URL},
+		ThanosHost:        thanosSrv.URL,
+		SearchAPIEndpoint: searchSrv.URL + "/searchapi/graphql",
+	}
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/migration-targets?cluster=c1&vmNamespace=default&vmName=vm1", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+	var resp api.MigrationTargetResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "vm1", resp.SourceVM.Name)
+	assert.Equal(t, "default", resp.SourceVM.Namespace)
+	assert.Equal(t, "c1", resp.SourceVM.Cluster)
 }

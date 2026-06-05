@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Red Hat, Inc.
+// Copyright Contributors to the Open Cluster Management project
+
 package migrationadvisor
 
 import (
@@ -105,11 +108,21 @@ func (*noCopy) Unlock() {
 type ObservabilityClient struct {
 	RestConfig *rest.Config
 	ThanosHost string // overrides thanosQueryFrontend for testing
+	// ServiceCAPath is the path to the OpenShift service CA bundle PEM file.
+	// Defaults to DefaultServiceCAPath when empty.
+	ServiceCAPath string
 
 	noCopy       noCopy
 	clientOnce   sync.Once
 	cachedClient *http.Client
 	clientErr    error
+}
+
+func (o *ObservabilityClient) serviceCAPath() string {
+	if o.ServiceCAPath != "" {
+		return o.ServiceCAPath
+	}
+	return DefaultServiceCAPath
 }
 
 func (o *ObservabilityClient) baseURL() string {
@@ -124,7 +137,7 @@ func (o *ObservabilityClient) baseURL() string {
 // client and therefore the same connection pool.
 func (o *ObservabilityClient) httpClient() (*http.Client, error) {
 	o.clientOnce.Do(func() {
-		o.cachedClient, o.clientErr = rest.HTTPClientFor(o.RestConfig)
+		o.cachedClient, o.clientErr = buildHTTPClient(o.RestConfig, o.serviceCAPath())
 	})
 	return o.cachedClient, o.clientErr
 }

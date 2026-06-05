@@ -5,8 +5,23 @@
 # - use environment variables to overwrite this value (e.g export VERSION=0.0.2)
 VERSION ?= 0.0.1
 
-FORKLIFT_CRD_REF ?= main
-CLUSTER_LIFECYCLE_API_REF ?= main
+# Pinned to the commit used by go.mod (pseudo-version v0.0.0-20260511180337-abefdf391aaf)
+# so that the CRD schema downloaded by install-resources matches the Go types.
+# To upgrade: update go.mod first, then set this to the new commit SHA.
+FORKLIFT_CRD_REF ?= abefdf391aafe8cc8eea14ee11142e4740359b1c
+# stolostron/cluster-lifecycle-api has no release tags; pinned to the latest
+# tested commit on main (2026-03-30).  Update when bumping the CRD schema.
+CLUSTER_LIFECYCLE_API_REF ?= 43755d6ceb09c9d06ced4bd77c1fa13d7a0b2da5
+
+# Guard that rejects ref variables containing shell metacharacters.
+# Allowed: alphanumerics, dots, hyphens, underscores, forward-slashes (for
+# paths like "refs/heads/main").  Any other character aborts the build.
+.PHONY: _validate-refs
+_validate-refs:
+	@printf '%s' '$(FORKLIFT_CRD_REF)' | grep -qE '^[A-Za-z0-9._/\-]+$$' || \
+	  { echo "ERROR: FORKLIFT_CRD_REF='$(FORKLIFT_CRD_REF)' contains unsafe characters" >&2; exit 1; }
+	@printf '%s' '$(CLUSTER_LIFECYCLE_API_REF)' | grep -qE '^[A-Za-z0-9._/\-]+$$' || \
+	  { echo "ERROR: CLUSTER_LIFECYCLE_API_REF='$(CLUSTER_LIFECYCLE_API_REF)' contains unsafe characters" >&2; exit 1; }
 
 TARGETOS ?= linux
 TARGETARCH ?= amd64
@@ -252,16 +267,16 @@ cert-manager:
 	kubectl wait deployment -n cert-manager cert-manager --for condition=Available=True --timeout=180s
 	kubectl wait deployment -n cert-manager cert-manager-webhook --for condition=Available=True --timeout=180s
 
-install-resources:
+install-resources: _validate-refs
 	-kubectl create ns open-cluster-management
 	kubectl apply -f ./config/webhook_test/
-	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/cluster-permission/refs/heads/main/config/crds/rbac.open-cluster-management.io_clusterpermissions.yaml
-	kubectl apply -f https://raw.githubusercontent.com/kubev2v/forklift/$(FORKLIFT_CRD_REF)/operator/config/crd/bases/forklift.konveyor.io_plans.yaml
-	kubectl apply -f https://raw.githubusercontent.com/kubev2v/forklift/$(FORKLIFT_CRD_REF)/operator/config/crd/bases/forklift.konveyor.io_networkmaps.yaml
-	kubectl apply -f https://raw.githubusercontent.com/kubev2v/forklift/$(FORKLIFT_CRD_REF)/operator/config/crd/bases/forklift.konveyor.io_storagemaps.yaml
-	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/api/main/cluster/v1/0000_00_clusters.open-cluster-management.io_managedclusters.crd.yaml
-	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/multicloud-integrations/refs/heads/main/deploy/crds/clusters.open-cluster-management.io_managedserviceaccounts.crd.yaml
-	kubectl apply -f https://raw.githubusercontent.com/stolostron/cluster-lifecycle-api/$(CLUSTER_LIFECYCLE_API_REF)/view/v1beta1/view.open-cluster-management.io_managedclusterviews.crd.yaml
+	kubectl apply -f "https://raw.githubusercontent.com/open-cluster-management-io/cluster-permission/refs/heads/main/config/crds/rbac.open-cluster-management.io_clusterpermissions.yaml"
+	kubectl apply -f "https://raw.githubusercontent.com/kubev2v/forklift/$(FORKLIFT_CRD_REF)/operator/config/crd/bases/forklift.konveyor.io_plans.yaml"
+	kubectl apply -f "https://raw.githubusercontent.com/kubev2v/forklift/$(FORKLIFT_CRD_REF)/operator/config/crd/bases/forklift.konveyor.io_networkmaps.yaml"
+	kubectl apply -f "https://raw.githubusercontent.com/kubev2v/forklift/$(FORKLIFT_CRD_REF)/operator/config/crd/bases/forklift.konveyor.io_storagemaps.yaml"
+	kubectl apply -f "https://raw.githubusercontent.com/open-cluster-management-io/api/main/cluster/v1/0000_00_clusters.open-cluster-management.io_managedclusters.crd.yaml"
+	kubectl apply -f "https://raw.githubusercontent.com/open-cluster-management-io/multicloud-integrations/refs/heads/main/deploy/crds/clusters.open-cluster-management.io_managedserviceaccounts.crd.yaml"
+	kubectl apply -f "https://raw.githubusercontent.com/stolostron/cluster-lifecycle-api/$(CLUSTER_LIFECYCLE_API_REF)/view/v1beta1/view.open-cluster-management.io_managedclusterviews.crd.yaml"
 
 kind-load-image: docker-build
 	kind load image-archive <($(CONTAINER_TOOL) save $(IMG)) --name $(KIND_NAME)

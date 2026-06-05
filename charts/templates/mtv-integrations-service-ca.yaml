@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mtv-integrations-service-ca
+  namespace: {{ .Values.global.namespace }}
+  annotations:
+    # OpenShift automatically injects the cluster's Service CA bundle into this
+    # ConfigMap under the key "service-ca.crt".  The migration advisor reads it
+    # at --service-ca-path so it can verify TLS certificates of in-cluster HTTPS
+    # services (e.g. search-search-api) that are signed by the OpenShift Service CA.
+    service.beta.openshift.io/inject-cabundle: "true"

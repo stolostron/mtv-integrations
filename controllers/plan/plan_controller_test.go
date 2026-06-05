@@ -1,12 +1,17 @@
+// Copyright (c) 2026 Red Hat, Inc.
+// Copyright Contributors to the Open Cluster Management project
+
 package plan
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -22,6 +27,8 @@ import (
 type testClient struct {
 	client.Client // embedded nil; only Get and Patch are overridden
 	objects       map[string]*unstructured.Unstructured
+	getErr        error // when non-nil, returned by Get for any object
+	patchErr      error // when non-nil, returned by Patch for any object
 }
 
 func newTestClient(objs ...*unstructured.Unstructured) *testClient {
@@ -39,6 +46,9 @@ func (c *testClient) set(obj *unstructured.Unstructured) {
 }
 
 func (c *testClient) Get(_ context.Context, nn types.NamespacedName, obj client.Object, _ ...client.GetOption) error {
+	if c.getErr != nil {
+		return c.getErr
+	}
 	u := obj.(*unstructured.Unstructured)
 	stored, ok := c.objects[objMapKey(nn.Namespace, nn.Name, u.GetKind())]
 	if !ok {
@@ -49,6 +59,9 @@ func (c *testClient) Get(_ context.Context, nn types.NamespacedName, obj client.
 }
 
 func (c *testClient) Patch(_ context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) error {
+	if c.patchErr != nil {
+		return c.patchErr
+	}
 	c.set(obj.(*unstructured.Unstructured))
 	return nil
 }
@@ -217,6 +230,159 @@ func TestPlanReconcile_UsesPlanNamespaceWhenMapNamespaceEmpty(t *testing.T) {
 
 	assert.True(t, hasOwnerRef(c, "NetworkMap", testNS, testNetName))
 	assert.True(t, hasOwnerRef(c, "StorageMap", testNS, testStgName))
+}
+
+// TestPlanReconcile_ReplacesStaleOwnerRef verifies that a NetworkMap carrying
+// a controller OwnerReference for the same Plan name but a different (stale) UID
+// gets its OwnerReference updated to the current Plan's UID.
+func TestPlanReconcile_ReplacesStaleOwnerRef(t *testing.T) {
+	p := makePlan(testNetName, testNS, testStgName, testNS)
+	nm := makeNetworkMap(testNS, true)
+
+	// Pre-stamp a stale Plan owner ref with the correct name but a different UID.
+	staleUID := types.UID(testPlanName + "-old-uid")
+	isController := true
+	blockOwnerDeletion := true
+	nm.SetOwnerReferences([]metav1.OwnerReference{{
+		APIVersion:         planGVK.Group + "/" + planGVK.Version,
+		Kind:               planGVK.Kind,
+		Name:               testPlanName,
+		UID:                staleUID,
+		Controller:         &isController,
+		BlockOwnerDeletion: &blockOwnerDeletion,
+	}})
+
+	sm := makeStorageMap(testNS, true)
+	_, c := reconcileWith(t, p, nm, sm)
+
+	// The stored NetworkMap must have exactly one Plan owner ref with the NEW UID.
+	stored := c.objects[objMapKey(testNS, testNetName, "NetworkMap")]
+	require.NotNil(t, stored)
+	var planRefs []metav1.OwnerReference
+	for _, ref := range stored.GetOwnerReferences() {
+		if ref.Kind == planKind && ref.Name == testPlanName {
+			planRefs = append(planRefs, ref)
+		}
+	}
+	require.Len(t, planRefs, 1, "should have exactly one Plan owner ref after stale replacement")
+	assert.Equal(t, p.GetUID(), planRefs[0].UID, "owner ref UID should be the current Plan's UID, not the stale one")
+}
+
+// TestPlanReconcile_GetErrorPropagates verifies that a non-NotFound error
+// returned by Get for a map resource propagates out of Reconcile with a
+// descriptive wrapper message.
+func TestPlanReconcile_GetErrorPropagates(t *testing.T) {
+	p := makePlan(testNetName, testNS, testStgName, testNS)
+	nm := makeNetworkMap(testNS, true)
+
+	c := newTestClient(p, nm)
+	// Make the client return a generic server error for any Get after the Plan
+	// itself has been fetched. We do this by pre-loading the Plan but injecting
+	// the error only for the map lookups. The simplest way is to remove nm from
+	// the store and set a getErr that fires for all objects including Plan;
+	// instead we use a thin wrapper that skips the Plan kind.
+	errClient := &mapGetErrClient{testClient: c, mapKind: "NetworkMap"}
+	r := &PlanReconciler{Client: errClient, Scheme: runtime.NewScheme()}
+	_, err := r.Reconcile(context.Background(), planReq())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "NetworkMap")
+}
+
+// mapGetErrClient wraps testClient and injects a generic error when Get is
+// called for a specific resource Kind (simulating an API server error that is
+// not a "not found").
+type mapGetErrClient struct {
+	*testClient
+	mapKind string
+}
+
+func (c *mapGetErrClient) Get(
+	ctx context.Context, nn types.NamespacedName, obj client.Object, opts ...client.GetOption,
+) error {
+	u := obj.(*unstructured.Unstructured)
+	if u.GetKind() == c.mapKind {
+		return fmt.Errorf("internal server error")
+	}
+	return c.testClient.Get(ctx, nn, obj, opts...)
+}
+
+func (c *mapGetErrClient) Patch(
+	ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption,
+) error {
+	return c.testClient.Patch(ctx, obj, patch, opts...)
+}
+
+// TestPlanReconcile_SkipsMapOwnedByDifferentController verifies that a map
+// already controlled by a genuinely different controller (not a Plan) is left
+// untouched.
+func TestPlanReconcile_SkipsMapOwnedByDifferentController(t *testing.T) {
+	p := makePlan(testNetName, testNS, testStgName, testNS)
+	nm := makeNetworkMap(testNS, true)
+
+	otherController := true
+	nm.SetOwnerReferences([]metav1.OwnerReference{{
+		APIVersion: "apps/v1",
+		Kind:       "Deployment",
+		Name:       "other-controller",
+		UID:        types.UID("other-uid"),
+		Controller: &otherController,
+	}})
+
+	sm := makeStorageMap(testNS, true)
+	_, c := reconcileWith(t, p, nm, sm)
+
+	// NetworkMap should NOT have a Plan OwnerReference since another controller owns it.
+	assert.False(t, hasOwnerRef(c, "NetworkMap", testNS, testNetName),
+		"NetworkMap owned by a different controller should not get a Plan OwnerReference")
+	// StorageMap has no prior owner and should be claimed.
+	assert.True(t, hasOwnerRef(c, "StorageMap", testNS, testStgName))
+}
+
+// TestPlanReconcile_PreservesNonControllerOwnerRefs verifies that existing
+// non-controller OwnerReferences on a map are preserved when the Plan owner
+// reference is added.
+func TestPlanReconcile_PreservesNonControllerOwnerRefs(t *testing.T) {
+	p := makePlan(testNetName, testNS, testStgName, testNS)
+	nm := makeNetworkMap(testNS, true)
+
+	// A non-controller ref (no Controller field set) that should survive.
+	nm.SetOwnerReferences([]metav1.OwnerReference{{
+		APIVersion: "v1",
+		Kind:       "ConfigMap",
+		Name:       "some-config",
+		UID:        types.UID("cfg-uid"),
+	}})
+
+	_, c := reconcileWith(t, p, nm)
+
+	stored := c.objects[objMapKey(testNS, testNetName, "NetworkMap")]
+	require.NotNil(t, stored)
+
+	var found bool
+	for _, ref := range stored.GetOwnerReferences() {
+		if ref.Kind == "ConfigMap" && ref.Name == "some-config" {
+			found = true
+		}
+	}
+	assert.True(t, found, "non-controller OwnerReference should be preserved")
+	assert.True(t, hasOwnerRef(c, "NetworkMap", testNS, testNetName),
+		"Plan OwnerReference should also be added")
+}
+
+// TestPlanReconcile_PatchErrorPropagates verifies that a Patch failure from
+// setOwner is returned with a descriptive message.
+func TestPlanReconcile_PatchErrorPropagates(t *testing.T) {
+	p := makePlan(testNetName, testNS, testStgName, testNS)
+	nm := makeNetworkMap(testNS, true)
+	sm := makeStorageMap(testNS, true)
+
+	c := newTestClient(p, nm, sm)
+	c.patchErr = fmt.Errorf("patch refused by webhook")
+	r := &PlanReconciler{Client: c, Scheme: runtime.NewScheme()}
+
+	_, err := r.Reconcile(context.Background(), planReq())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "patch owner reference")
 }
 
 // TestPlanReconcile_Idempotent verifies that reconciling twice does not error

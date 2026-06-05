@@ -100,8 +100,8 @@ func discoverAdvisorEndpoints(
 	routeHost := func(namespace, routeName string) (string, error) {
 		obj, err := dynClient.Resource(routeGVR).Namespace(namespace).Get(ctx, routeName, metav1.GetOptions{})
 		if err != nil {
-			if apierrors.IsNotFound(err) {
-				setupLog.Info("Route not found, will use in-cluster default",
+			if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
+				setupLog.Info("Route not accessible, will use in-cluster default",
 					"namespace", namespace, "route", routeName)
 				return "", nil
 			}
@@ -246,6 +246,7 @@ func setupAdvisorServer(
 	restConfig *rest.Config,
 	searchAPIEndpoint, thanosHost, advisorAddr string,
 	advisorCacheTTL time.Duration,
+	serviceCAPath string,
 ) error {
 	advisorHandler := &migrationadvisor.Handler{
 		DynamicClient:     dynamicClient,
@@ -253,6 +254,7 @@ func setupAdvisorServer(
 		SearchAPIEndpoint: searchAPIEndpoint,
 		ThanosHost:        thanosHost,
 		CacheTTL:          advisorCacheTTL,
+		ServiceCAPath:     serviceCAPath,
 	}
 	advisorMux := http.NewServeMux()
 	advisorMux.Handle("/api/v1/migration-targets", advisorHandler)
@@ -263,8 +265,9 @@ func setupAdvisorServer(
 		}
 
 		obsClient := &migrationadvisor.ObservabilityClient{
-			RestConfig: restConfig,
-			ThanosHost: thanosHost,
+			RestConfig:    restConfig,
+			ThanosHost:    thanosHost,
+			ServiceCAPath: serviceCAPath,
 		}
 		if err := obsClient.CheckHealth(r.Context()); err != nil {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -312,6 +315,7 @@ func main() {
 	var thanosHost string
 	var advisorAddr string
 	var advisorCacheTTL time.Duration
+	var serviceCAPath string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -350,6 +354,13 @@ func main() {
 	flag.DurationVar(&advisorCacheTTL, "advisor-cache-ttl", 0,
 		"How long cluster-wide data (node metrics, StorageClasses) is cached by the "+
 			"migration advisor. Defaults to 30s when not set.")
+	flag.StringVar(&serviceCAPath, "service-ca-path", migrationadvisor.DefaultServiceCAPath,
+		"Path to the OpenShift service CA bundle PEM file. "+
+			"Required in-cluster so the migration advisor can verify TLS certificates of "+
+			"in-cluster HTTPS services (e.g. search-search-api) signed by the OpenShift Service CA. "+
+			"The file is normally injected via a ConfigMap annotated with "+
+			"service.beta.openshift.io/inject-cabundle=true. "+
+			"Leave empty to disable service CA trust (not recommended for production).")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -493,6 +504,7 @@ func main() {
 	if err := setupAdvisorServer(
 		mgr, dynamicClient, mgr.GetConfig(),
 		searchAPIEndpoint, thanosHost, advisorAddr, advisorCacheTTL,
+		serviceCAPath,
 	); err != nil {
 		setupLog.Error(err, "unable to add advisor server to manager")
 		os.Exit(1)
