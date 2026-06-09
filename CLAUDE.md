@@ -52,25 +52,7 @@ make run                           # or use VS Code launch config with --enable-
 
 ## Architecture
 
-For detailed architecture, see [architecture/README.md](architecture/README.md).
-
-### Key source layout
-
-- `cmd/main.go` — entrypoint; wires up the manager, webhook server, and advisor HTTP server; auto-discovers ACM Search and Thanos Route URLs at startup.
-- `controllers/managedcluster_controller.go` — the `ManagedClusterReconciler`; manages Provider lifecycle via dynamic client and unstructured objects (no generated CRD types for Provider).
-- `controllers/payloads.go` — GVR constants and payload constructors for Provider, ClusterPermission, ManagedServiceAccount, and Secret resources.
-- `controllers/migrationadvisor/` — migration advisor: `handler.go` (HTTP handler + cluster data cache), `scorer.go` (scoring algorithm), `vm_fetcher.go` (VM lookup via Search API), `observability_client.go` (Thanos queries), `search_client.go` (ACM Search GraphQL).
-- `webhook/plan_webhook.go` — admission handler; checks `UserPermission` resources to authorize Plan operations.
-- `api/types.go` — shared request/response types for the migration advisor API.
-- `addons/` — OCM AddOnTemplate YAML for CNV and MTV operators (not Go code).
-
-### Design patterns
-
-- **No generated CRD types for Provider**: the controller uses `dynamic.Interface` with `unstructured.Unstructured` objects and hand-built payloads (`payloads.go`) instead of generated typed clients.
-- **Finalizer-based cleanup**: `ManagedClusterFinalizer` on ManagedCluster resources ensures Provider, Secret, ClusterPermission, and ManagedServiceAccount are cleaned up on deletion or label removal.
-- **Resources follow a naming convention**: managed resources are named `<cluster-name>-mtv` (e.g., provider, secret, service account).
-- **UserPermission names are configurable**: the webhook reads `MTV_USERPERMISSION_NAMES` env var for e2e/kind testing because standard Kubernetes rejects `:` in resource names.
-- **Advisor caching**: cluster-wide data (node metrics, Ceph metrics, StorageClasses) is cached with a configurable TTL (default 30s) and uses `singleflight` to deduplicate concurrent cache rebuilds.
+For system design, data flows, and module layout, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Also see [architecture/README.md](architecture/README.md) for the original controller/webhook summary.
 
 ## Testing patterns
 
@@ -82,6 +64,11 @@ For detailed architecture, see [architecture/README.md](architecture/README.md).
 ## CI
 
 GitHub Actions runs unit tests, webhook tests, provider-CRD tests, e2e tests, and advisor tests as separate jobs, then aggregates coverage for SonarCloud.
+
+## Tool availability
+
+- `gh` CLI is installed — use it for GitHub operations.
+- `jira` CLI is installed — but prefer MCP tools (`mcp__jira-mcp-server__*`) for Jira operations when available.
 
 ## Personal configuration
 
