@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-MTV Integrations is a Go controller-runtime operator that integrates the Migration Toolkit for Virtualization (MTV/Forklift) with Advanced Cluster Management (ACM). It has three runtime components:
+MTV Integrations is a Go controller-runtime operator that integrates the Migration Toolkit for Virtualization (MTV/Forklift) with Advanced Cluster Management (ACM). It has four runtime components:
 
-1. **ManagedCluster Reconciler** — watches ManagedCluster resources labeled `mtv.konveyor.io/provider: "true"` and creates the ManagedServiceAccount, ClusterPermission, provider Secret, and Forklift Provider CR needed to onboard each cluster as an MTV provider.
-2. **Plan Validation Webhook** — a validating admission webhook at `/validate-plan` (port 9443) that impersonates the requesting user and checks `UserPermission` resources (`managedcluster:admin` / `kubevirt.io:admin`) to authorize Plan CREATE/UPDATE.
-3. **Migration Advisor API** — a plain-HTTP server (default `:8082`) at `/api/v1/migration-targets` that scores candidate clusters for a given source VM using Thanos metrics and the ACM Search API.
+1. **ManagedCluster Reconciler** — watches ManagedCluster resources labeled `acm/cnv-operator-install: "true"` and creates the ManagedServiceAccount, ClusterPermission, provider Secret, and Forklift Provider CR needed to onboard each cluster as an MTV provider.
+2. **Plan Reconciler (CCLM)** — watches Forklift Plans labeled `app.kubernetes.io/created-by: cclm` and stamps OwnerReferences on their NetworkMap and StorageMap so Kubernetes garbage-collects them when the Plan is deleted. Degrades gracefully if Forklift CRDs are not installed.
+3. **Plan Validation Webhook** — a validating admission webhook at `/validate-plan` (port 9443) that impersonates the requesting user and checks `UserPermission` resources (`managedcluster:admin` / `kubevirt.io:admin` / `kubevirt.io:edit`) to authorize Plan CREATE/UPDATE.
+4. **Migration Advisor API** — a plain-HTTP server (default `:8082`) at `/api/v1/migration-targets` that scores candidate clusters for a given source VM using Thanos metrics and the ACM Search API.
 
 The repo also ships OCM addon manifests under `addons/` (CNV addon and MTV addon) — these are pure YAML, not Go code.
 

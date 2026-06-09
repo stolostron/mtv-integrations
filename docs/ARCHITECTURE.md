@@ -2,47 +2,56 @@
 
 ## System overview
 
-MTV Integrations runs as a single Deployment in the `open-cluster-management` namespace on the ACM hub cluster. It exposes three independent runtime components behind one binary (`cmd/main.go`):
+MTV Integrations runs as a single Deployment in the `open-cluster-management` namespace on the ACM hub cluster. It exposes four independent runtime components behind one binary (`cmd/main.go`):
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  mtv-integrations-controller  (single binary)           │
-│                                                         │
-│  ┌───────────────────────┐  ┌────────────────────────┐  │
-│  │  ManagedCluster        │  │  Plan Validation       │  │
-│  │  Reconciler            │  │  Webhook (:9443/TLS)   │  │
-│  │  (controller-runtime)  │  │  /validate-plan        │  │
-│  └──────────┬────────────┘  └──────────┬─────────────┘  │
-│             │                          │                 │
-│  ┌──────────┴────────────────────────────────────────┐  │
-│  │  Migration Advisor API (:8082/HTTP)               │  │
-│  │  /api/v1/migration-targets                        │  │
-│  └───────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────┘
-        │                    │                    │
-        ▼                    ▼                    ▼
-   ManagedCluster       K8s Admission       Thanos / ACM
-   resources            API server          Search API
+┌──────────────────────────────────────────────────────────────┐
+│  mtv-integrations-controller  (single binary)                │
+│                                                              │
+│  ┌────────────────────────┐  ┌─────────────────────────────┐ │
+│  │  ManagedCluster         │  │  Plan Reconciler (CCLM)     │ │
+│  │  Reconciler             │  │  OwnerRef on NetworkMap/    │ │
+│  │  (controller-runtime)   │  │  StorageMap for cclm Plans  │ │
+│  └──────────┬─────────────┘  └──────────┬──────────────────┘ │
+│             │                           │                    │
+│  ┌──────────┴─────────────┐  ┌──────────┴──────────────────┐ │
+│  │  Plan Validation        │  │  Migration Advisor API      │ │
+│  │  Webhook (:9443/TLS)    │  │  (:8082/HTTP)               │ │
+│  │  /validate-plan         │  │  /api/v1/migration-targets  │ │
+│  └─────────────────────────┘  └─────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────┘
+        │              │              │                │
+        ▼              ▼              ▼                ▼
+   ManagedCluster  Forklift CRDs  K8s Admission   Thanos / ACM
+   resources       (Plans, Maps)  API server      Search API
 ```
 
 ## Component details
 
 ### ManagedCluster Reconciler
 
-**Trigger:** ManagedCluster labeled `mtv.konveyor.io/provider: "true"`.
+**Trigger:** ManagedCluster labeled `acm/cnv-operator-install: "true"`.
 
 **What it creates (all named `<cluster>-mtv`):**
 
-1. **ManagedServiceAccount** — in the cluster's namespace; enables token rotation for secure hub-to-spoke communication.
+1. **ManagedServiceAccount** — in the cluster's namespace on the hub; enables token rotation for secure hub-to-spoke communication.
 2. **ClusterPermission** — grants `cluster-admin` ClusterRoleBinding to the service account on the managed cluster.
-3. **Provider Secret** — in the MTV namespace (`mtv-integrations`); contains kubeconfig token, CA cert, and a `cacert` key for MTV compatibility.
-4. **Forklift Provider CR** — registers the cluster as an OpenShift-type provider in the MTV namespace.
+3. **Provider Secret** — in the `mtv-integrations` namespace; contains kubeconfig token, CA cert, and a `cacert` key for MTV compatibility.
+4. **Forklift Provider CR** — registers the cluster as an OpenShift-type provider in the `mtv-integrations` namespace.
 
 **Cleanup:** finalizer (`mtv-integrations.open-cluster-management.io/resource-cleanup`) ensures all four resources are removed when the label is removed or the cluster is deleted.
 
 **Key design choice:** Provider and ClusterPermission resources use `dynamic.Interface` with hand-built `unstructured.Unstructured` payloads (see `controllers/payloads.go`) rather than generated typed clients, because these CRDs are external and may not be installed.
 
 **Sequencing:** the Provider CR is only created after the Secret is ready (contains a valid token), ensuring authentication details are in place before MTV tries to use the provider.
+
+### Plan Reconciler (CCLM ownership)
+
+**Trigger:** Forklift Plan resources labeled `app.kubernetes.io/created-by: cclm`.
+
+**Purpose:** when the CCLM (Cluster Lifecycle Manager) creates a Plan with its associated NetworkMap and StorageMap, this controller stamps an `OwnerReference` on the NetworkMap and StorageMap pointing back to the Plan. This ensures Kubernetes garbage-collects the maps when the Plan is deleted.
+
+**Soft failure:** if Forklift CRDs are not installed on the hub, the controller logs a warning and starts a background watcher that retries when the CRDs become available, rather than failing fatally.
 
 ### Plan Validation Webhook
 
@@ -54,8 +63,8 @@ MTV Integrations runs as a single Deployment in the `open-cluster-management` na
 1. Extract destination provider name (must end with `-mtv`) → derive managed cluster name.
 2. Read `spec.targetNamespace` from the Plan.
 3. Impersonate the requesting user via a dynamic client.
-4. GET cluster-scoped `UserPermission` resources (`managedcluster:admin` and `kubevirt.io:admin` from `clusterview.open-cluster-management.io/v1alpha1`).
-5. Allow if **either** permission has a `status.bindings` entry for that cluster whose `namespaces` list includes `*` or the target namespace.
+4. GET cluster-scoped `UserPermission` resources — by default checks `managedcluster:admin`, `kubevirt.io:admin`, and `kubevirt.io:edit` (from `clusterview.open-cluster-management.io/v1alpha1`).
+5. Allow if **any** permission has a `status.bindings` entry for that cluster whose `namespaces` list includes `*` or the target namespace.
 6. Deny with a descriptive error otherwise.
 
 **Testing note:** standard Kubernetes rejects `:` in resource names, so e2e/kind tests set the `MTV_USERPERMISSION_NAMES` env var to override resource names with DNS-safe alternatives.
@@ -75,6 +84,8 @@ MTV Integrations runs as a single Deployment in the `open-cluster-management` na
 
 **Caching:** cluster-wide data (node metrics, Ceph metrics, StorageClasses) is cached with a configurable TTL (default 30s) using `singleflight` to deduplicate concurrent refreshes.
 
+**HTTP client:** `httpclient.go` builds an `*http.Client` that authenticates with the bearer token from the rest config and trusts both the cluster API server CA and the OpenShift service CA (from a mounted ConfigMap at `/var/run/secrets/service-ca/service-ca.crt`). This is required for in-cluster HTTPS services like `search-search-api` that are signed by the OpenShift Service CA.
+
 **Endpoint discovery:** at startup, `cmd/main.go` auto-discovers ACM Search API and Thanos Query Frontend via OpenShift Routes (`search-api` in `open-cluster-management`, `rbac-query-proxy` in `open-cluster-management-observability`). Flags `--search-api-endpoint` and `--thanos-host` override this for local development.
 
 ## Addons (YAML-only)
@@ -88,17 +99,27 @@ Both require ACM and the Policy addon. They are applied directly with `oc apply 
 
 ## Key data flows
 
-### Provider onboarding (reconciler)
+### Provider onboarding (ManagedCluster reconciler)
 
 ```
-ManagedCluster (label added)
+ManagedCluster (acm/cnv-operator-install=true label added)
   → Reconciler creates ManagedServiceAccount
   → MSAA controller creates ServiceAccount + token on spoke
   → Token appears in Secret on hub
   → Reconciler creates ClusterPermission (cluster-admin on spoke)
-  → Reconciler creates Provider Secret (token + CA in MTV namespace)
+  → Reconciler creates Provider Secret (token + CA in mtv-integrations namespace)
   → Reconciler creates Forklift Provider CR
   → MTV can now use the cluster as a migration source/target
+```
+
+### CCLM Plan ownership (Plan reconciler)
+
+```
+CCLM creates Plan + NetworkMap + StorageMap (all labeled created-by=cclm)
+  → Plan reconciler detects the Plan
+  → Reads spec.map.network and spec.map.storage refs
+  → Sets OwnerReference on NetworkMap and StorageMap → Plan
+  → Kubernetes GC deletes maps when Plan is deleted
 ```
 
 ### Plan authorization (webhook)
