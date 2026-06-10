@@ -1,0 +1,37 @@
+---
+description: Fleet Engineering Agentic SDLC — skills reference for Cursor
+alwaysApply: false
+---
+
+# Fleet Engineering Skills
+
+Fetch and apply the relevant skill from the [agentic-sdlc repo](https://github.com/OpenShift-Fleet/agentic-sdlc) when the task matches its domain.
+
+## Jira skills (`skills/jira/`)
+
+- **jira-create** — Interactive issue creation with specialist delegation
+- **jira-specialist** — General triage, search, linking, transitions
+- **bug-specialist** — Bug triage, reproduction steps, fix planning
+- **story-specialist** — User stories with acceptance criteria
+- **task-specialist** — Internal technical tasks
+- **epic-specialist** — Multi-sprint epics with outcomes
+- **feature-specialist** — Large customer-facing capabilities
+- **initiative-specialist** — Multi-team strategic programs
+- **outcome-specialist** — Strategic outcomes tied to OKRs
+- **spike-specialist** — Time-boxed research and PoC
+
+## SDLC skills (`skills/sdlc/`)
+
+- **start-work** — Create a Jira sub-task to begin work
+- **finish-work** — Commit, push, open PR, update Jira
+- **pr-review** — GitHub PR review with worktree isolation and inline comments
+- **pr-fix** — Fix blocked PRs: merge conflicts, CI failures, review comments
+- **agent-memory-setup** — Initialize or update CLAUDE.md / AGENTS.md for a repo
+- **repo-content-audit** — Scan for unlinked or orphaned content
+- **opencode-setup** — Install and configure OpenCode
+
+## Meeting skills (`skills/meetings/`)
+
+- **f2f-daily-summary** — Capture daily F2F meeting notes as Jira sub-tasks
+- **f2f-epic-specialist** — Create and manage F2F meeting Epics
+- **presentation-task** — Log a delivered presentation as a closed Jira sub-task
