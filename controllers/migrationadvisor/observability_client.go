@@ -5,6 +5,7 @@ package migrationadvisor
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -111,6 +112,9 @@ type ObservabilityClient struct {
 	// ServiceCAPath is the path to the OpenShift service CA bundle PEM file.
 	// Defaults to DefaultServiceCAPath when empty.
 	ServiceCAPath string
+	// TLSOpts is an optional function applied to the TLS configuration of the
+	// outbound HTTP client. Used to inherit the cluster's central TLS profile.
+	TLSOpts func(*tls.Config)
 
 	noCopy       noCopy
 	clientOnce   sync.Once
@@ -137,7 +141,7 @@ func (o *ObservabilityClient) baseURL() string {
 // client and therefore the same connection pool.
 func (o *ObservabilityClient) httpClient() (*http.Client, error) {
 	o.clientOnce.Do(func() {
-		o.cachedClient, o.clientErr = buildHTTPClient(o.RestConfig, o.serviceCAPath())
+		o.cachedClient, o.clientErr = buildHTTPClient(o.RestConfig, o.serviceCAPath(), o.TLSOpts)
 	})
 	return o.cachedClient, o.clientErr
 }

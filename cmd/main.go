@@ -34,6 +34,8 @@ import (
 	miwebhook "github.com/stolostron/mtv-integrations/webhook"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	apiconfigv1 "github.com/openshift/api/config/v1"
+	tlspkg "github.com/openshift/controller-runtime-common/pkg/tls"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,6 +50,7 @@ import (
 	auth "open-cluster-management.io/managed-serviceaccount/apis/authentication/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -72,6 +75,7 @@ func init() {
 	utilruntime.Must(forkliftv1beta1.SchemeBuilder.AddToScheme(scheme))
 	utilruntime.Must(authorizationv1.AddToScheme(scheme))
 	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
+	utilruntime.Must(apiconfigv1.Install(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -247,6 +251,7 @@ func setupAdvisorServer(
 	searchAPIEndpoint, thanosHost, advisorAddr string,
 	advisorCacheTTL time.Duration,
 	serviceCAPath string,
+	tlsOpts func(*tls.Config),
 ) error {
 	advisorHandler := &migrationadvisor.Handler{
 		DynamicClient:     dynamicClient,
@@ -255,6 +260,7 @@ func setupAdvisorServer(
 		ThanosHost:        thanosHost,
 		CacheTTL:          advisorCacheTTL,
 		ServiceCAPath:     serviceCAPath,
+		TLSOpts:           tlsOpts,
 	}
 	advisorMux := http.NewServeMux()
 	advisorMux.Handle("/api/v1/migration-targets", advisorHandler)
@@ -268,6 +274,7 @@ func setupAdvisorServer(
 			RestConfig:    restConfig,
 			ThanosHost:    thanosHost,
 			ServiceCAPath: serviceCAPath,
+			TLSOpts:       tlsOpts,
 		}
 		if err := obsClient.CheckHealth(r.Context()); err != nil {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -298,6 +305,72 @@ func setupAdvisorServer(
 			return err
 		}
 	}))
+}
+
+// getInitialTLSProfile fetches the TLS profile from the cluster's APIServer resource
+// and returns the profile spec and a tls.Config function to apply it.
+// Falls back to the Intermediate profile (TLS 1.2+) if the APIServer cannot be reached.
+func getInitialTLSProfile(restConfig *rest.Config) (apiconfigv1.TLSProfileSpec, func(*tls.Config)) {
+	// safeDefaultSpec returns the Intermediate TLS profile spec, which is the
+	// well-known cluster default (TLS 1.2+). If GetTLSProfileSpec unexpectedly
+	// fails, we fall back to the pre-defined Intermediate profile directly so we
+	// never propagate a zero-value spec (empty MinTLSVersion) to NewTLSConfigFromProfile.
+	safeDefaultSpec := func(cause error) apiconfigv1.TLSProfileSpec {
+		if cause != nil {
+			setupLog.Error(cause, "unable to get default TLS profile, using built-in Intermediate spec")
+		}
+		spec, err := tlspkg.GetTLSProfileSpec(nil)
+		if err != nil {
+			// GetTLSProfileSpec(nil) should never error; if it does, use the
+			// compiled-in Intermediate profile directly to avoid a zero-value spec.
+			setupLog.Error(err, "GetTLSProfileSpec returned unexpected error, using built-in Intermediate spec")
+			return *apiconfigv1.TLSProfiles[apiconfigv1.TLSProfileIntermediateType]
+		}
+		return spec
+	}
+
+	applyAndLog := func(profileSpec apiconfigv1.TLSProfileSpec) (apiconfigv1.TLSProfileSpec, func(*tls.Config)) {
+		tlsConfigFunc, unsupportedCiphers := tlspkg.NewTLSConfigFromProfile(profileSpec)
+		if len(unsupportedCiphers) > 0 {
+			setupLog.Info("TLS profile contains unsupported ciphers (ignored)", "ciphers", unsupportedCiphers)
+		}
+		setupLog.Info("TLS security profile loaded",
+			"minTLSVersion", profileSpec.MinTLSVersion,
+			"ciphers", profileSpec.Ciphers,
+		)
+		return profileSpec, tlsConfigFunc
+	}
+
+	k8sClient, err := client.New(restConfig, client.Options{Scheme: scheme})
+	if err != nil {
+		setupLog.Error(err, "unable to create client for TLS profile fetch, falling back to default")
+		return applyAndLog(safeDefaultSpec(nil))
+	}
+
+	profileSpec, err := tlspkg.FetchAPIServerTLSProfile(context.Background(), k8sClient)
+	if err != nil {
+		setupLog.Error(err, "unable to fetch TLS profile from APIServer, falling back to default")
+		return applyAndLog(safeDefaultSpec(nil))
+	}
+
+	return applyAndLog(profileSpec)
+}
+
+// setupTLSProfileWatcher registers a controller that watches the APIServer object
+// for TLS profile changes and cancels ctx (triggering a graceful restart) when
+// the profile changes.
+func setupTLSProfileWatcher(mgr ctrl.Manager, cancel context.CancelFunc, profileSpec apiconfigv1.TLSProfileSpec) error {
+	return (&tlspkg.SecurityProfileWatcher{
+		Client:                mgr.GetClient(),
+		InitialTLSProfileSpec: profileSpec,
+		OnProfileChange: func(ctx context.Context, oldSpec, newSpec apiconfigv1.TLSProfileSpec) {
+			setupLog.Info("TLS security profile changed, initiating graceful shutdown for reload",
+				"oldMinTLSVersion", oldSpec.MinTLSVersion,
+				"newMinTLSVersion", newSpec.MinTLSVersion,
+			)
+			cancel()
+		},
+	}).SetupWithManager(mgr)
 }
 
 func main() {
@@ -375,14 +448,23 @@ func main() {
 	// Rapid Reset CVEs. For more information see:
 	// - https://github.com/advisories/GHSA-qppj-fm5r-hxr3
 	// - https://github.com/advisories/GHSA-4374-p667-p6c8
-	disableHTTP2 := func(c *tls.Config) {
-		setupLog.Info("disabling http/2")
-		c.NextProtos = []string{"http/1.1"}
+	if !enableHTTP2 {
+		tlsOpts = append(tlsOpts, func(c *tls.Config) {
+			setupLog.Info("disabling http/2")
+			c.NextProtos = []string{"http/1.1"}
+		})
 	}
 
-	if !enableHTTP2 {
-		tlsOpts = append(tlsOpts, disableHTTP2)
-	}
+	// Fetch the cluster's central TLS profile from the APIServer resource and
+	// apply it to all TLS servers. Falls back to the Intermediate profile if the
+	// APIServer is unreachable (e.g. local testing).
+	tlsProfileSpec, tlsProfileFunc := getInitialTLSProfile(ctrl.GetConfigOrDie())
+	tlsOpts = append(tlsOpts, tlsProfileFunc)
+
+	// Use a cancellable context so the SecurityProfileWatcher can trigger a
+	// graceful restart when the cluster's TLS profile changes.
+	ctx, cancel := context.WithCancel(ctrl.SetupSignalHandler())
+	defer cancel()
 
 	// Create watchers for metrics and webhooks certificates
 	var metricsCertWatcher, webhookCertWatcher *certwatcher.CertWatcher
@@ -494,9 +576,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	sigCtx := ctrl.SetupSignalHandler()
-
-	if err = setupControllers(sigCtx, mgr, dynamicClient, enableWebhook, webhookServer); err != nil {
+	if err = setupControllers(ctx, mgr, dynamicClient, enableWebhook, webhookServer); err != nil {
 		setupLog.Error(err, "unable to create controller")
 		os.Exit(1)
 	}
@@ -504,10 +584,15 @@ func main() {
 	if err := setupAdvisorServer(
 		mgr, dynamicClient, mgr.GetConfig(),
 		searchAPIEndpoint, thanosHost, advisorAddr, advisorCacheTTL,
-		serviceCAPath,
+		serviceCAPath, tlsProfileFunc,
 	); err != nil {
 		setupLog.Error(err, "unable to add advisor server to manager")
 		os.Exit(1)
+	}
+
+	// Watch for TLS profile changes and trigger graceful restart when detected.
+	if err := setupTLSProfileWatcher(mgr, cancel, tlsProfileSpec); err != nil {
+		setupLog.Error(err, "unable to set up TLS security profile watcher, continuing without it")
 	}
 	// +kubebuilder:scaffold:builder
 
@@ -537,7 +622,7 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(sigCtx); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}

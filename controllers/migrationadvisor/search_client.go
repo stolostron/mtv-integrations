@@ -6,6 +6,7 @@ package migrationadvisor
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,6 +28,9 @@ type SearchClient struct {
 	// ServiceCAPath is the path to the OpenShift service CA bundle PEM file.
 	// Defaults to DefaultServiceCAPath when empty.
 	ServiceCAPath string
+	// TLSOpts is an optional function applied to the TLS configuration of the
+	// outbound HTTP client. Used to inherit the cluster's central TLS profile.
+	TLSOpts func(*tls.Config)
 }
 
 func (s *SearchClient) serviceCAPath() string {
@@ -77,7 +81,7 @@ const searchPageSize = 1000
 func (s *SearchClient) ListStorageClassProvisionersByCluster(
 	ctx context.Context,
 ) (map[string][]SCProvisioner, error) {
-	httpClient, err := buildHTTPClient(s.RestConfig, s.serviceCAPath())
+	httpClient, err := buildHTTPClient(s.RestConfig, s.serviceCAPath(), s.TLSOpts)
 	if err != nil {
 		return nil, fmt.Errorf("build HTTP client: %w", err)
 	}

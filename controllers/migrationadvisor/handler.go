@@ -5,6 +5,7 @@ package migrationadvisor
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -100,6 +101,11 @@ type Handler struct {
 	// CacheTTL controls how long cluster-wide data (node metrics, SCs) is cached.
 	// Defaults to defaultCacheTTL (30 s) when zero.
 	CacheTTL time.Duration
+	// TLSOpts is an optional function applied to the TLS configuration of all
+	// outbound HTTP clients (Thanos, Search API). It is used to inherit the
+	// cluster's central TLS profile (MinVersion, CipherSuites) from the APIServer
+	// resource rather than hard-coding protocol versions.
+	TLSOpts func(*tls.Config)
 
 	cache clusterDataCache
 }
@@ -289,11 +295,17 @@ func (h *Handler) getClusterSnapshot(ctx context.Context) (clusterSnapshot, erro
 // Ceph metrics are non-fatal: missing Ceph data causes the scorer to use a
 // neutral storage score rather than failing the whole request.
 func (h *Handler) fetchFreshClusterData(ctx context.Context) (clusterSnapshot, error) {
-	obsClient := &ObservabilityClient{RestConfig: h.RestConfig, ThanosHost: h.ThanosHost, ServiceCAPath: h.ServiceCAPath}
+	obsClient := &ObservabilityClient{
+		RestConfig:    h.RestConfig,
+		ThanosHost:    h.ThanosHost,
+		ServiceCAPath: h.ServiceCAPath,
+		TLSOpts:       h.TLSOpts,
+	}
 	searchClient := &SearchClient{
 		RestConfig:        h.RestConfig,
 		SearchAPIEndpoint: h.SearchAPIEndpoint,
 		ServiceCAPath:     h.ServiceCAPath,
+		TLSOpts:           h.TLSOpts,
 	}
 
 	var (
