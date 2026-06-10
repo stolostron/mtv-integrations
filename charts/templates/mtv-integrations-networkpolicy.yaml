@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mtv-integrations-controller
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: mtv-integrations
+    app.kubernetes.io/name: mtv-integrations
+spec:
+  podSelector:
+    matchLabels:
+      app: mtv-integrations
+      component: "ocm-mtv-integrations-ctrl"
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 9443
+          protocol: TCP
+        - port: 8443
+          protocol: TCP
+        - port: 8082
+          protocol: TCP
+        - port: 8081
+          protocol: TCP
