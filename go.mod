@@ -6,6 +6,8 @@ require (
 	github.com/kubev2v/forklift v0.0.0-20260511180337-abefdf391aaf
 	github.com/onsi/ginkgo/v2 v2.28.3
 	github.com/onsi/gomega v1.40.0
+	github.com/openshift/api v0.0.0-20260610142756-120a096a2850
+	github.com/openshift/controller-runtime-common v0.0.0-20260428152732-64ee174f5e2e
 	github.com/stretchr/testify v1.11.1
 	k8s.io/apimachinery v0.35.3
 	k8s.io/client-go v0.35.3
@@ -32,6 +34,7 @@ require (
 	github.com/google/btree v1.1.3 // indirect
 	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.7 // indirect
 	github.com/openshift/custom-resource-status v1.1.2 // indirect
+	github.com/openshift/library-go v0.0.0-20260213153706-03f1709971c5 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect

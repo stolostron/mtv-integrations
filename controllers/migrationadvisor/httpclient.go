@@ -33,7 +33,12 @@ const DefaultServiceCAPath = "/var/run/secrets/service-ca/service-ca.crt"
 //
 // serviceCAPath is silently skipped when empty or the file does not exist
 // (e.g. unit tests or non-OpenShift environments).
-func buildHTTPClient(restConfig *rest.Config, serviceCAPath string) (*http.Client, error) {
+//
+// tlsOpts are applied after the CA pool is configured and may set MinVersion,
+// CipherSuites, or other TLS settings from the cluster's central TLS profile.
+func buildHTTPClient(
+	restConfig *rest.Config, serviceCAPath string, tlsOpts ...func(*tls.Config),
+) (*http.Client, error) {
 	pool, err := x509.SystemCertPool()
 	if err != nil {
 		// SystemCertPool returns an error on some platforms (e.g. Windows).
@@ -74,7 +79,13 @@ func buildHTTPClient(restConfig *rest.Config, serviceCAPath string) (*http.Clien
 	// only override the fields that must differ.
 	//nolint:forcetypeassert // http.DefaultTransport is always *http.Transport
 	baseTx := http.DefaultTransport.(*http.Transport).Clone()
-	baseTx.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS13}
+	tlsConf := &tls.Config{RootCAs: pool}
+	for _, opt := range tlsOpts {
+		if opt != nil {
+			opt(tlsConf)
+		}
+	}
+	baseTx.TLSClientConfig = tlsConf
 	baseTx.DialContext = (&net.Dialer{
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
