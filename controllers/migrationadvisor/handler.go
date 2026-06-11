@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -127,6 +128,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	log = log.WithValues("vm", req.VMName, "namespace", req.VMNamespace, "cluster", req.ClusterName)
 	ctx := ctrl.LoggerInto(r.Context(), log)
+
+	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if token == "" {
+		http.Error(w, "authorization required", http.StatusUnauthorized)
+		return
+	}
+
+	allowed, err := checkCallerAuthorized(ctx, h.DynamicClient, h.RestConfig, token)
+	if err != nil {
+		log.Error(err, "authorization check failed")
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	if !allowed {
+		http.Error(w, "forbidden: requires acm-vm-fleet:admin or cluster-admin for all CNV clusters",
+			http.StatusForbidden)
+		return
+	}
 
 	resp, err := h.evaluate(ctx, req)
 	if err != nil {
