@@ -213,10 +213,12 @@ var _ = Describe("Migration advisor API", Label("migration_advisor"), Ordered, f
 
 	AfterAll(func() {
 		ctx := GinkgoT().Context()
-		if err := clientHub.RbacV1().ClusterRoleBindings().Delete(ctx, advisorSAName, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		err := clientHub.RbacV1().ClusterRoleBindings().Delete(ctx, advisorSAName, metav1.DeleteOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
 			Expect(err).NotTo(HaveOccurred())
 		}
-		if err := clientHub.CoreV1().ServiceAccounts(advisorSANamespace).Delete(ctx, advisorSAName, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		err = clientHub.CoreV1().ServiceAccounts(advisorSANamespace).Delete(ctx, advisorSAName, metav1.DeleteOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
 			Expect(err).NotTo(HaveOccurred())
 		}
 		utils.Kubectl("delete", "-f", userpermissionPath, "--ignore-not-found")
