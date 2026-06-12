@@ -24,10 +24,11 @@ import (
 
 var _ = Describe("Migration advisor API", Label("migration_advisor"), Ordered, func() {
 	const (
-		path                = "../resources/migration_advisor"
-		managedclusterPath  = path + "/managedcluster.yaml"
-		targetClusterPath   = path + "/target_managedcluster.yaml"
-		untargetClusterPath = path + "/untarget_managecluster.yaml"
+		path                 = "../resources/migration_advisor"
+		managedclusterPath   = path + "/managedcluster.yaml"
+		targetClusterPath    = path + "/target_managedcluster.yaml"
+		untargetClusterPath  = path + "/untarget_managecluster.yaml"
+		userpermissionPath   = path + "/userpermission.yaml"
 
 		sourceCluster = "advisor-cluster"
 		vmNamespace   = "default"
@@ -190,8 +191,10 @@ var _ = Describe("Migration advisor API", Label("migration_advisor"), Ordered, f
 
 		authClient = &http.Client{
 			Transport: &bearerRoundTripper{token: tokenResp.Status.Token},
+			Timeout:   15 * time.Second,
 		}
 
+		utils.Kubectl("apply", "-f", userpermissionPath)
 		utils.Kubectl("apply", "-f", managedclusterPath)
 		utils.Kubectl("apply", "-f", targetClusterPath)
 		utils.Kubectl("apply", "-f", untargetClusterPath)
@@ -210,8 +213,13 @@ var _ = Describe("Migration advisor API", Label("migration_advisor"), Ordered, f
 
 	AfterAll(func() {
 		ctx := GinkgoT().Context()
-		_ = clientHub.RbacV1().ClusterRoleBindings().Delete(ctx, advisorSAName, metav1.DeleteOptions{})
-		_ = clientHub.CoreV1().ServiceAccounts(advisorSANamespace).Delete(ctx, advisorSAName, metav1.DeleteOptions{})
+		if err := clientHub.RbacV1().ClusterRoleBindings().Delete(ctx, advisorSAName, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+			Expect(err).NotTo(HaveOccurred())
+		}
+		if err := clientHub.CoreV1().ServiceAccounts(advisorSANamespace).Delete(ctx, advisorSAName, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+			Expect(err).NotTo(HaveOccurred())
+		}
+		utils.Kubectl("delete", "-f", userpermissionPath, "--ignore-not-found")
 		utils.Kubectl("delete", "-f", managedclusterPath, "--ignore-not-found")
 		utils.Kubectl("delete", "-f", targetClusterPath, "--ignore-not-found")
 		utils.Kubectl("delete", "-f", untargetClusterPath, "--ignore-not-found")

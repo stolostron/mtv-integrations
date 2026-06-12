@@ -16,6 +16,7 @@ import (
 	"github.com/stolostron/mtv-integrations/api"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/singleflight"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
@@ -129,14 +130,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log = log.WithValues("vm", req.VMName, "namespace", req.VMNamespace, "cluster", req.ClusterName)
 	ctx := ctrl.LoggerInto(r.Context(), log)
 
-	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if token == "" {
+	parts := strings.Fields(r.Header.Get("Authorization"))
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] == "" {
 		http.Error(w, "authorization required", http.StatusUnauthorized)
 		return
 	}
+	token := parts[1]
 
 	allowed, err := checkCallerAuthorized(ctx, h.DynamicClient, h.RestConfig, token)
 	if err != nil {
+		if apierrors.IsUnauthorized(err) {
+			http.Error(w, "authorization required", http.StatusUnauthorized)
+			return
+		}
 		log.Error(err, "authorization check failed")
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return

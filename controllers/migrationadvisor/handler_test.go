@@ -291,7 +291,7 @@ func TestServeHTTP_EvaluateVMNotFound(t *testing.T) {
 	defer thanosSrv.Close()
 	searchSrv := newFakeSearchServer(t, []string{})
 	defer searchSrv.Close()
-	authSrv := newFakeUserPermissionServer(t, // fleet admin
+	authSrv := newFakeUserPermissionServer(t, "test-token", // fleet admin
 		map[string][]string{advisorRoleVMFleetAdmin(): {hubClusterName}})
 	defer authSrv.Close()
 
@@ -325,7 +325,7 @@ func TestServeHTTP_EvaluateServerError(t *testing.T) {
 	defer thanosSrv.Close()
 	searchSrv := newFakeSearchServer(t, []string{})
 	defer searchSrv.Close()
-	authSrv := newFakeUserPermissionServer(t, // fleet admin
+	authSrv := newFakeUserPermissionServer(t, "test-token", // fleet admin
 		map[string][]string{advisorRoleVMFleetAdmin(): {hubClusterName}})
 	defer authSrv.Close()
 
@@ -359,7 +359,7 @@ func TestServeHTTP_EvaluateSuccess(t *testing.T) {
 	defer thanosSrv.Close()
 	searchSrv := newFakeSearchServer(t, []string{})
 	defer searchSrv.Close()
-	authSrv := newFakeUserPermissionServer(t, // fleet admin
+	authSrv := newFakeUserPermissionServer(t, "test-token", // fleet admin
 		map[string][]string{advisorRoleVMFleetAdmin(): {hubClusterName}})
 	defer authSrv.Close()
 

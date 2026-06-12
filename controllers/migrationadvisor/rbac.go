@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -65,6 +66,9 @@ func checkCallerAuthorized(
 	baseConfig *rest.Config,
 	bearerToken string,
 ) (bool, error) {
+	authCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
 	callerCfg := rest.CopyConfig(baseConfig)
 	callerCfg.BearerToken = bearerToken
 	callerCfg.BearerTokenFile = ""
@@ -75,11 +79,11 @@ func checkCallerAuthorized(
 		return false, fmt.Errorf("build caller dynamic client: %w", err)
 	}
 
-	if ok, err := userPermissionCoversHub(ctx, callerClient); err != nil || ok {
+	if ok, err := userPermissionCoversHub(authCtx, callerClient); err != nil || ok {
 		return ok, err
 	}
 
-	return callerIsClusterAdmin(ctx, controllerClient, callerClient)
+	return callerIsClusterAdmin(authCtx, controllerClient, callerClient)
 }
 
 // userPermissionCoversHub returns true when the caller's acm-vm-fleet:admin
@@ -94,13 +98,22 @@ func userPermissionCoversHub(ctx context.Context, callerClient dynamic.Interface
 		return false, fmt.Errorf("get UserPermission %q: %w", roleName, err)
 	}
 
-	bindings, _, _ := unstructured.NestedSlice(obj.Object, "status", "bindings")
+	bindings, found, err := unstructured.NestedSlice(obj.Object, "status", "bindings")
+	if err != nil {
+		return false, fmt.Errorf("decode UserPermission %q bindings: %w", roleName, err)
+	}
+	if !found {
+		return false, nil
+	}
 	for _, raw := range bindings {
 		binding, ok := raw.(map[string]interface{})
 		if !ok {
-			continue
+			return false, fmt.Errorf("decode UserPermission %q binding: unexpected %T", roleName, raw)
 		}
-		cluster, _, _ := unstructured.NestedString(binding, "cluster")
+		cluster, _, err := unstructured.NestedString(binding, "cluster")
+		if err != nil {
+			return false, fmt.Errorf("decode UserPermission %q binding cluster: %w", roleName, err)
+		}
 		if cluster == hubClusterName {
 			return true, nil
 		}
@@ -135,10 +148,20 @@ func callerIsClusterAdmin(
 	}
 
 	covered := make(map[string]struct{})
-	bindings, _, _ := unstructured.NestedSlice(obj.Object, "status", "bindings")
-	for _, raw := range bindings {
-		if b, ok := raw.(map[string]interface{}); ok {
-			cluster, _, _ := unstructured.NestedString(b, "cluster")
+	bindings, found, err := unstructured.NestedSlice(obj.Object, "status", "bindings")
+	if err != nil {
+		return false, fmt.Errorf("decode UserPermission %q bindings: %w", roleName, err)
+	}
+	if found {
+		for _, raw := range bindings {
+			b, ok := raw.(map[string]interface{})
+			if !ok {
+				return false, fmt.Errorf("decode UserPermission %q binding: unexpected %T", roleName, raw)
+			}
+			cluster, _, err := unstructured.NestedString(b, "cluster")
+			if err != nil {
+				return false, fmt.Errorf("decode UserPermission %q binding cluster: %w", roleName, err)
+			}
 			covered[cluster] = struct{}{}
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,8 +27,17 @@ import (
 // GET /apis/clusterview.open-cluster-management.io/v1alpha1/userpermissions/<name>.
 //
 // roleBindings maps each role name to the cluster names that appear in its
-// status.bindings. A role not present in the map returns an empty binding.
-func newFakeUserPermissionServer(t *testing.T, roleBindings map[string][]string) *httptest.Server {
+// status.bindings. A role not present in the map returns an empty binding list.
+//
+// When expectedToken is non-empty the server validates that the incoming
+// Authorization header is exactly "Bearer <expectedToken>" and returns 401
+// otherwise. Pass "" to skip token validation (e.g. in unit tests that call
+// helper functions directly without a bearer token).
+func newFakeUserPermissionServer(
+	t *testing.T,
+	expectedToken string,
+	roleBindings map[string][]string,
+) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		const prefix = "/apis/clusterview.open-cluster-management.io/v1alpha1/userpermissions/"
@@ -35,8 +45,15 @@ func newFakeUserPermissionServer(t *testing.T, roleBindings map[string][]string)
 			http.Error(w, "unexpected: "+r.Method+" "+r.URL.Path, http.StatusNotFound)
 			return
 		}
+		if expectedToken != "" {
+			got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if got != expectedToken {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
 		roleName := r.URL.Path[len(prefix):]
-		var bindings []interface{}
+		bindings := make([]interface{}, 0) // encode as [] not null
 		for _, cluster := range roleBindings[roleName] {
 			bindings = append(bindings, map[string]interface{}{
 				"cluster":    cluster,
@@ -122,7 +139,7 @@ func TestServeHTTP_RBAC_Denied(t *testing.T) {
 	defer searchSrv.Close()
 
 	// No bindings for either role → denied.
-	upSrv := newFakeUserPermissionServer(t, nil)
+	upSrv := newFakeUserPermissionServer(t, "unprivileged-token", nil)
 	defer upSrv.Close()
 
 	// CNV cluster exists so the cluster-admin path is reachable but fails.
@@ -149,7 +166,7 @@ func TestServeHTTP_RBAC_VMFleetAdminAllowed(t *testing.T) {
 	defer searchSrv.Close()
 
 	// acm-vm-fleet:admin has local-cluster binding → fleet admin.
-	upSrv := newFakeUserPermissionServer(t, map[string][]string{
+	upSrv := newFakeUserPermissionServer(t, "fleet-admin-token", map[string][]string{
 		advisorRoleVMFleetAdmin(): {hubClusterName},
 	})
 	defer upSrv.Close()
@@ -167,8 +184,8 @@ func TestServeHTTP_RBAC_VMFleetAdminAllowed(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
-	assert.NotEqual(t, http.StatusUnauthorized, w.Code)
-	assert.NotEqual(t, http.StatusForbidden, w.Code)
+	// RBAC passed; fake MCV returns NotFound → VMNotFoundError → 400.
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 // TestServeHTTP_RBAC_ClusterAdminAllowed verifies that a caller whose
@@ -182,7 +199,7 @@ func TestServeHTTP_RBAC_ClusterAdminAllowed(t *testing.T) {
 
 	// acm-vm-fleet:admin → no local-cluster (not fleet admin).
 	// managedcluster:admin → covers "spoke01" (the only CNV cluster).
-	upSrv := newFakeUserPermissionServer(t, map[string][]string{
+	upSrv := newFakeUserPermissionServer(t, "cluster-admin-token", map[string][]string{
 		advisorRoleManagedClusterAdmin(): {"spoke01", hubClusterName},
 	})
 	defer upSrv.Close()
@@ -201,8 +218,8 @@ func TestServeHTTP_RBAC_ClusterAdminAllowed(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
-	assert.NotEqual(t, http.StatusUnauthorized, w.Code)
-	assert.NotEqual(t, http.StatusForbidden, w.Code)
+	// RBAC passed; fake MCV returns NotFound → VMNotFoundError → 400.
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 // TestServeHTTP_RBAC_ClusterAdminDenied_MissingCluster verifies that a caller
@@ -214,7 +231,7 @@ func TestServeHTTP_RBAC_ClusterAdminDenied_MissingCluster(t *testing.T) {
 	defer searchSrv.Close()
 
 	// managedcluster:admin covers only "spoke01", but "spoke02" also has CNV.
-	upSrv := newFakeUserPermissionServer(t, map[string][]string{
+	upSrv := newFakeUserPermissionServer(t, "partial-admin-token", map[string][]string{
 		advisorRoleManagedClusterAdmin(): {"spoke01"},
 	})
 	defer upSrv.Close()
@@ -256,7 +273,7 @@ func TestServeHTTP_RBAC_AuthServerError(t *testing.T) {
 // ── userPermissionCoversHub unit tests ───────────────────────────────────────
 
 func TestUserPermissionCoversHub_LocalClusterBinding(t *testing.T) {
-	upSrv := newFakeUserPermissionServer(t, map[string][]string{
+	upSrv := newFakeUserPermissionServer(t, "", map[string][]string{
 		advisorRoleVMFleetAdmin(): {hubClusterName},
 	})
 	defer upSrv.Close()
@@ -271,7 +288,7 @@ func TestUserPermissionCoversHub_LocalClusterBinding(t *testing.T) {
 
 func TestUserPermissionCoversHub_NoLocalClusterBinding(t *testing.T) {
 	// acm-vm-fleet:admin exists but only for a spoke cluster.
-	upSrv := newFakeUserPermissionServer(t, map[string][]string{
+	upSrv := newFakeUserPermissionServer(t, "", map[string][]string{
 		advisorRoleVMFleetAdmin(): {"spoke01"},
 	})
 	defer upSrv.Close()
@@ -316,7 +333,7 @@ func TestCallerIsClusterAdmin_AllCNVClustersCovers(t *testing.T) {
 	)
 
 	// Caller's managedcluster:admin covers "spoke01".
-	upSrv := newFakeUserPermissionServer(t, map[string][]string{
+	upSrv := newFakeUserPermissionServer(t, "", map[string][]string{
 		advisorRoleManagedClusterAdmin(): {"spoke01", hubClusterName},
 	})
 	defer upSrv.Close()
@@ -355,7 +372,7 @@ func TestCallerIsClusterAdmin_MissingOneCluster(t *testing.T) {
 	)
 
 	// Caller's managedcluster:admin covers only "spoke01" — missing "spoke02".
-	upSrv := newFakeUserPermissionServer(t, map[string][]string{
+	upSrv := newFakeUserPermissionServer(t, "", map[string][]string{
 		advisorRoleManagedClusterAdmin(): {"spoke01"},
 	})
 	defer upSrv.Close()
@@ -385,7 +402,7 @@ func TestCallerIsClusterAdmin_NoCNVClusters(t *testing.T) {
 		},
 	)
 
-	upSrv := newFakeUserPermissionServer(t, map[string][]string{
+	upSrv := newFakeUserPermissionServer(t, "", map[string][]string{
 		advisorRoleManagedClusterAdmin(): {hubClusterName},
 	})
 	defer upSrv.Close()
