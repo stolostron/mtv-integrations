@@ -1,0 +1,12 @@
+# UserPermission fixture for migration-advisor e2e on kind.
+# kind/etcd reject ':' in resource names, so we use hyphen names and point the
+# controller at them via MTV_ADVISOR_ROLE_VM_FLEET_ADMIN env var.
+apiVersion: clusterview.open-cluster-management.io/v1alpha1
+kind: UserPermission
+metadata:
+  name: acm-vm-fleet-admin
+status:
+  bindings:
+    - cluster: local-cluster
+      namespaces:
+        - "*"

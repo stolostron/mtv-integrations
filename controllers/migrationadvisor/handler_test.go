@@ -117,6 +117,7 @@ func TestServeHTTP_MissingParams(t *testing.T) {
 
 // ── getClusterSnapshot / fetchFreshClusterData ───────────────────────────────
 
+
 // newFakeSearchServer creates an httptest server mimicking the ACM Search API.
 func newFakeSearchServer(t *testing.T, clusters []string) *httptest.Server {
 	t.Helper()
@@ -290,6 +291,9 @@ func TestServeHTTP_EvaluateVMNotFound(t *testing.T) {
 	defer thanosSrv.Close()
 	searchSrv := newFakeSearchServer(t, []string{})
 	defer searchSrv.Close()
+	authSrv := newFakeUserPermissionServer(t, "test-token", // fleet admin
+		map[string][]string{advisorRoleVMFleetAdmin(): {hubClusterName}})
+	defer authSrv.Close()
 
 	fakeClient := newFakeClientWithMCV(
 		func(_ k8stesting.Action) (bool, runtime.Object, error) {
@@ -299,13 +303,14 @@ func TestServeHTTP_EvaluateVMNotFound(t *testing.T) {
 
 	h := &Handler{
 		DynamicClient:     fakeClient,
-		RestConfig:        &rest.Config{Host: thanosSrv.URL},
+		RestConfig:        &rest.Config{Host: authSrv.URL},
 		ThanosHost:        thanosSrv.URL,
 		SearchAPIEndpoint: searchSrv.URL + "/searchapi/graphql",
 	}
 
 	req := httptest.NewRequest(http.MethodGet,
 		"/api/v1/migration-targets?cluster=nonexistent-cluster&vmNamespace=default&vmName=vm1", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -320,6 +325,9 @@ func TestServeHTTP_EvaluateServerError(t *testing.T) {
 	defer thanosSrv.Close()
 	searchSrv := newFakeSearchServer(t, []string{})
 	defer searchSrv.Close()
+	authSrv := newFakeUserPermissionServer(t, "test-token", // fleet admin
+		map[string][]string{advisorRoleVMFleetAdmin(): {hubClusterName}})
+	defer authSrv.Close()
 
 	fakeClient := newFakeClientWithMCV(
 		func(_ k8stesting.Action) (bool, runtime.Object, error) {
@@ -329,13 +337,14 @@ func TestServeHTTP_EvaluateServerError(t *testing.T) {
 
 	h := &Handler{
 		DynamicClient:     fakeClient,
-		RestConfig:        &rest.Config{Host: thanosSrv.URL},
+		RestConfig:        &rest.Config{Host: authSrv.URL},
 		ThanosHost:        thanosSrv.URL,
 		SearchAPIEndpoint: searchSrv.URL + "/searchapi/graphql",
 	}
 
 	req := httptest.NewRequest(http.MethodGet,
 		"/api/v1/migration-targets?cluster=c1&vmNamespace=default&vmName=vm1", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -350,6 +359,9 @@ func TestServeHTTP_EvaluateSuccess(t *testing.T) {
 	defer thanosSrv.Close()
 	searchSrv := newFakeSearchServer(t, []string{})
 	defer searchSrv.Close()
+	authSrv := newFakeUserPermissionServer(t, "test-token", // fleet admin
+		map[string][]string{advisorRoleVMFleetAdmin(): {hubClusterName}})
+	defer authSrv.Close()
 
 	fakeClient := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), dummyManagedCluster)
 	injectWatchEvent(fakeClient, mcvWithResult(map[string]interface{}{
@@ -360,13 +372,14 @@ func TestServeHTTP_EvaluateSuccess(t *testing.T) {
 
 	h := &Handler{
 		DynamicClient:     fakeClient,
-		RestConfig:        &rest.Config{Host: thanosSrv.URL},
+		RestConfig:        &rest.Config{Host: authSrv.URL},
 		ThanosHost:        thanosSrv.URL,
 		SearchAPIEndpoint: searchSrv.URL + "/searchapi/graphql",
 	}
 
 	req := httptest.NewRequest(http.MethodGet,
 		"/api/v1/migration-targets?cluster=c1&vmNamespace=default&vmName=vm1", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
