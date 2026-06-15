@@ -79,6 +79,16 @@ Use the tool-aware fallback chain: ~/.config/opencode/user.local.md (OpenCode),
 If none exist, fall back to agent memory (`user-config`), then placeholders.
 Run `make personalize` to generate all three files (if this repo uses Fleet Engineering tooling).
 
+## CVE workflow — Container Native Virtualization (ACM-35013)
+
+When a CVE fix merges on `main` in [`stolostron/mtv-integrations`](https://github.com/stolostron/mtv-integrations):
+
+1. Confirm the fix is merged and CI passes on `main`.
+2. Assign the Jira vulnerability ticket to **`ocp-sustaining-admins`**.
+3. Comment on the ticket: PR link(s), backport context, affected versions.
+
+Use MCP Jira tools for ticket operations. Parent: ACM-27405.
+
 ## Fleet Engineering Skills
 
 All skills are available as slash commands via the installed Fleet Engineering plugin. See the [Fleet Engineering skills catalog](https://github.com/OpenShift-Fleet/agentic-sdlc/blob/main/skills/README.md) for the full list with when-to-use guidance.
