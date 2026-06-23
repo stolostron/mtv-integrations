@@ -20,7 +20,8 @@ import (
 
 const (
 	// thanosQueryFrontend is the in-cluster Thanos Query Frontend from MCO.
-	thanosQueryFrontend = "https://observability-thanos-query-frontend.open-cluster-management-observability.svc:9090"
+	// Port 9090 is plain HTTP; TLS is only used for the external rbac-query-proxy Route.
+	thanosQueryFrontend = "http://observability-thanos-query-frontend.open-cluster-management-observability.svc:9090"
 
 	// promStatusSuccess is the expected status value in a successful Prometheus API response.
 	promStatusSuccess = "success"
