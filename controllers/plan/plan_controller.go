@@ -183,7 +183,7 @@ func (r *PlanReconciler) setOwner(ctx context.Context, plan, obj *unstructured.U
 	obj.SetOwnerReferences(filtered)
 
 	isController := true
-	blockOwnerDeletion := true
+	blockOwnerDeletion := false
 	obj.SetOwnerReferences(append(obj.GetOwnerReferences(), metav1.OwnerReference{
 		APIVersion:         planGVK.Group + "/" + planGVK.Version,
 		Kind:               planGVK.Kind,
