@@ -2,13 +2,14 @@ version: "2"
 
 run:
   timeout: 5m
+  allow-parallel-runners: true
 
 linters:
   default: none
   enable:
+    - copyloopvar
     - dupl
     - errcheck
-    - copyloopvar
     - ginkgolinter
     - goconst
     - gocyclo
@@ -32,6 +33,7 @@ linters:
       rules:
         - name: comment-spacings
   exclusions:
+    generated: lax
     rules:
       - path: "api/*"
         linters:
@@ -57,9 +59,19 @@ linters:
         linters:
           - staticcheck
         text: "ST1001"
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 
 # gofmt and goimports are formatters in golangci-lint v2
 formatters:
   enable:
     - gofmt
     - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
