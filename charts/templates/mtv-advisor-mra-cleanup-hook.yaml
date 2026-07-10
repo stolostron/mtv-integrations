@@ -42,7 +42,7 @@ rules:
   - multiclusterroleassignments
   verbs:
   - get
-  - patch
+  - update
   - delete
 ---
 apiVersion: rbac.authorization.k8s.io/v1
