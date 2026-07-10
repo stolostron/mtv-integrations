@@ -24,6 +24,10 @@ linters:
     - unparam
     - unused
   settings:
+    goconst:
+      # Don't count strings in _test.go files when determining if a string
+      # should be a constant; test tables use intentional magic strings.
+      ignore-tests: true
     revive:
       rules:
         - name: comment-spacings
@@ -37,7 +41,25 @@ linters:
         linters:
           - dupl
           - lll
+      # goconst is noisy for test utility helpers (non-_test.go files under
+      # test/) that use intentional magic strings.
+      - path: "test/"
+        linters:
+          - goconst
+      # QF1008 (remove embedded-field qualifier) is a new staticcheck quickfix
+      # surfaced when gosimple merged into staticcheck in v2; suppress until
+      # the codebase is incrementally cleaned up.
+      - linters:
+          - staticcheck
+        text: "QF1008"
+      # ST1001 (dot-imports) fires on Ginkgo/Gomega e2e helpers which use
+      # the conventional dot-import style; suppress for the test package.
+      - path: "test/"
+        linters:
+          - staticcheck
+        text: "ST1001"
 
+# gofmt and goimports are formatters in golangci-lint v2
 formatters:
   enable:
     - gofmt
