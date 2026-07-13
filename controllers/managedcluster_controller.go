@@ -33,8 +33,9 @@ import (
 // ManagedClusterReconciler reconciles a ManagedCluster object
 type ManagedClusterReconciler struct {
 	client.Client
-	Scheme        *runtime.Scheme
-	DynamicClient dynamic.Interface
+	Scheme           *runtime.Scheme
+	DynamicClient    dynamic.Interface
+	ManagerNamespace string // hub namespace of the mtv-integrations-manager SA (e.g. open-cluster-management)
 }
 
 const (
@@ -268,11 +269,21 @@ func (r *ManagedClusterReconciler) reconcileClusterPermissions(
 		return err
 	}
 
+	// MTV provider permission: grants the per-cluster MSA the cluster-admin role on the spoke.
 	if err := r.reconcileResource(ctx, ClusterPermissionsGVR,
-		managedCluster.Name, managedCluster.Name,
+		managedClusterMTVName(managedCluster.Name), managedCluster.Name,
 		clusterPermissionPayload(managedCluster, msaaNamespace)); err != nil {
-		log.Error(err, "Failed to reconcile ClusterPermissions")
+		log.Error(err, "Failed to reconcile MTV ClusterPermission")
 		return err
+	}
+
+	if r.ManagerNamespace != "" && managedCluster.Labels[LabelCNVOperatorInstall] == cnvOperatorInstallEnabled {
+		if err := r.reconcileResource(ctx, ClusterPermissionsGVR,
+			managedCluster.Name+"-mtv-advisor", managedCluster.Name,
+			advisorClusterPermissionPayload(managedCluster, r.ManagerNamespace)); err != nil {
+			log.Error(err, "Failed to reconcile advisor ClusterPermission")
+			return err
+		}
 	}
 	return nil
 }
@@ -418,7 +429,7 @@ func (r *ManagedClusterReconciler) reconcileProviderResources(
 	ctx context.Context,
 	managedCluster *clusterv1.ManagedCluster,
 ) error {
-	if err := r.reconcileResource(ctx, ProvidersGVR, managedCluster.Name,
+	if err := r.reconcileResource(ctx, ProvidersGVR, managedClusterMTVName(managedCluster.Name),
 		MTVIntegrationsNamespace, providerPayload(managedCluster)); err != nil {
 		log := log.FromContext(ctx)
 		log.Error(err, "Failed to reconcile Provider")
@@ -466,7 +477,7 @@ func (r *ManagedClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *ManagedClusterReconciler) reconcileResource(
 	ctx context.Context,
 	gvr schema.GroupVersionResource,
-	managedClusterName string,
+	resourceName string,
 	namespace string,
 	payload map[string]interface{},
 ) error {
@@ -474,10 +485,10 @@ func (r *ManagedClusterReconciler) reconcileResource(
 	resourceKind := gvr.Resource
 	_, err := r.DynamicClient.Resource(gvr).Namespace(namespace).Get(
 		ctx,
-		managedClusterMTVName(managedClusterName),
+		resourceName,
 		metav1.GetOptions{})
 	if errors.IsNotFound(err) {
-		log.Info("Create " + resourceKind)
+		log.Info("Create "+resourceKind, "name", resourceName, "namespace", namespace)
 
 		payloadJSON, err := json.Marshal(payload)
 		if err != nil {
@@ -495,10 +506,10 @@ func (r *ManagedClusterReconciler) reconcileResource(
 		_, err = r.DynamicClient.Resource(gvr).Namespace(namespace).Create(
 			ctx, unstructuredPayload, metav1.CreateOptions{})
 		if err != nil {
-			log.Error(err, "Failed to create resource", "kind", resourceKind, "namespace", namespace)
+			log.Error(err, "Failed to create resource", "kind", resourceKind, "name", resourceName, "namespace", namespace)
 			return err
 		}
-		log.Info("Created successfully", resourceKind, managedClusterName, "namespace", namespace)
+		log.Info("Created successfully", "kind", resourceKind, "name", resourceName, "namespace", namespace)
 	} else if err != nil {
 		return err
 	}
@@ -509,25 +520,24 @@ func deleteResource(
 	ctx context.Context,
 	dynamicClient dynamic.Interface,
 	gvr schema.GroupVersionResource,
-	managedClusterName string,
+	resourceName string,
 	namespace string,
 ) error {
 	log := log.FromContext(ctx)
 	resourceKind := gvr.Resource
-	managedClusterMTV := managedClusterMTVName(managedClusterName)
 
 	err := dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx,
-		managedClusterMTV, metav1.DeleteOptions{})
+		resourceName, metav1.DeleteOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
-			log.Info("Resource not found, nothing to delete", resourceKind, managedClusterMTV,
-				"namespace", namespace)
+			log.Info("Resource not found, nothing to delete", "kind", resourceKind,
+				"name", resourceName, "namespace", namespace)
 			return nil
 		}
-		log.Error(err, "Failed to delete "+resourceKind)
+		log.Error(err, "Failed to delete "+resourceKind, "name", resourceName)
 		return err
 	}
-	log.Info("Deleted successfully", resourceKind, managedClusterMTV, "namespace", namespace)
+	log.Info("Deleted successfully", "kind", resourceKind, "name", resourceName, "namespace", namespace)
 	return nil
 }
 
@@ -537,28 +547,38 @@ func (r *ManagedClusterReconciler) cleanupManagedClusterResources(ctx context.Co
 	log := log.FromContext(ctx)
 	log.Info("The ManagedCluster is no longer labeled for CNV operator installation, cleaning up resources")
 	managedClusterName := managedCluster.GetName()
+	mtvName := managedClusterMTVName(managedClusterName)
 	// Delete the following resources if they exist:
-	//  * ClusterPermission
+	//  * ClusterPermission (MTV provider)
+	//  * ClusterPermission (advisor Search API impersonation)
 	//  * ManagedServiceAccount
+	//  * Provider secret
 	//  * Provider
 	if err := deleteResource(ctx,
 		r.DynamicClient,
 		ClusterPermissionsGVR,
-		managedClusterName,
+		mtvName,
+		managedClusterName); err != nil {
+		return err
+	}
+	if err := deleteResource(ctx,
+		r.DynamicClient,
+		ClusterPermissionsGVR,
+		managedClusterName+"-mtv-advisor",
 		managedClusterName); err != nil {
 		return err
 	}
 	if err := deleteResource(ctx,
 		r.DynamicClient,
 		ManagedServiceAccountsGVR,
-		managedClusterName,
+		mtvName,
 		managedClusterName); err != nil {
 		return err
 	}
 	if err := deleteResource(ctx,
 		r.DynamicClient,
 		ProviderSecretGVR,
-		managedClusterName,
+		mtvName,
 		MTVIntegrationsNamespace); err != nil {
 		return err
 	}
@@ -566,7 +586,7 @@ func (r *ManagedClusterReconciler) cleanupManagedClusterResources(ctx context.Co
 	if err := deleteResource(ctx,
 		r.DynamicClient,
 		ProvidersGVR,
-		managedClusterName,
+		mtvName,
 		MTVIntegrationsNamespace); err != nil {
 		return err
 	}

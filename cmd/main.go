@@ -210,9 +210,10 @@ func setupControllers(
 	webhookServer webhook.Server,
 ) error {
 	if err := (&controllers.ManagedClusterReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		DynamicClient: dynamicClient,
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		DynamicClient:    dynamicClient,
+		ManagerNamespace: os.Getenv("POD_NAMESPACE"),
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("managed cluster controller: %w", err)
 	}
