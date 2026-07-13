@@ -620,6 +620,177 @@ func TestHelperMethods(t *testing.T) {
 	})
 }
 
+func TestAdvisorClusterPermissionPayload(t *testing.T) {
+	mc := &clusterv1.ManagedCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cluster"},
+	}
+	payload := advisorClusterPermissionPayload(mc, "open-cluster-management")
+
+	assert.Equal(t, clusterPermissionAPIVersion, payload[payloadKeyAPIVersion])
+	assert.Equal(t, clusterPermissionKind, payload[payloadKeyKind])
+
+	meta := payload[payloadKeyMetadata].(map[string]interface{})
+	assert.Equal(t, "test-cluster-mtv-advisor", meta[payloadKeyName])
+	assert.Equal(t, "test-cluster", meta[payloadKeyNamespace])
+
+	spec := payload[payloadKeySpec].(map[string]interface{})
+	crb := spec["clusterRoleBinding"].(map[string]interface{})
+	subject := crb["subject"].(map[string]interface{})
+	assert.Equal(t, "ServiceAccount", subject[payloadKeyKind])
+	assert.Equal(t, "mtv-integrations-manager", subject[payloadKeyName])
+	assert.Equal(t, "open-cluster-management", subject[payloadKeyNamespace])
+
+	roleRef := crb["roleRef"].(map[string]interface{})
+	assert.Equal(t, "acm-vm-extended:admin", roleRef[payloadKeyName])
+}
+
+func TestReconcile_CreatesAdvisorClusterPermission(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clusterv1.Install(scheme)
+	_ = auth.AddToScheme(scheme)
+	_ = apiextensionsv1.AddToScheme(scheme)
+	_ = appsv1.AddToScheme(scheme)
+
+	managedCluster := &clusterv1.ManagedCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-cluster",
+			Labels:     map[string]string{LabelCNVOperatorInstall: "true"},
+			Finalizers: []string{ManagedClusterFinalizer},
+		},
+		Spec: clusterv1.ManagedClusterSpec{
+			ManagedClusterClientConfigs: []clusterv1.ClientConfig{{URL: "https://example.com"}},
+		},
+	}
+
+	msaaNamespace := "open-cluster-management-agent-addon"
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "managed-serviceaccount-addon-agent",
+			Namespace: msaaNamespace,
+		},
+	}
+
+	k8sClient := clientfake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(providerCrd, managedCluster, deployment).Build()
+	dynClient := fake.NewSimpleDynamicClient(scheme)
+
+	reconciler := &ManagedClusterReconciler{
+		Client:           k8sClient,
+		Scheme:           scheme,
+		DynamicClient:    dynClient,
+		ManagerNamespace: "open-cluster-management",
+	}
+
+	// First reconcile creates the MSA.
+	_, err := reconciler.Reconcile(context.TODO(),
+		reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-cluster"}})
+	require.NoError(t, err)
+
+	// Second reconcile creates the ClusterPermissions.
+	_, err = reconciler.Reconcile(context.TODO(),
+		reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-cluster"}})
+	assert.NoError(t, err)
+
+	// MTV ClusterPermission
+	u, err := dynClient.Resource(ClusterPermissionsGVR).Namespace("test-cluster").Get(
+		context.TODO(), "test-cluster-mtv", metav1.GetOptions{})
+	assert.NoError(t, err)
+	assert.Equal(t, "test-cluster-mtv", u.GetName())
+
+	// Advisor ClusterPermission
+	adv, err := dynClient.Resource(ClusterPermissionsGVR).Namespace("test-cluster").Get(
+		context.TODO(), "test-cluster-mtv-advisor", metav1.GetOptions{})
+	assert.NoError(t, err)
+	assert.Equal(t, "test-cluster-mtv-advisor", adv.GetName())
+
+	// Verify advisor subject namespace matches ManagerNamespace.
+	ns, _, _ := unstructured.NestedString(adv.Object,
+		"spec", "clusterRoleBinding", "subject", "namespace")
+	assert.Equal(t, "open-cluster-management", ns)
+}
+
+func TestReconcile_SkipsAdvisorClusterPermission_WhenNoLabel(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clusterv1.Install(scheme)
+	_ = auth.AddToScheme(scheme)
+	_ = apiextensionsv1.AddToScheme(scheme)
+	_ = appsv1.AddToScheme(scheme)
+
+	// Cluster without the CNV label.
+	managedCluster := &clusterv1.ManagedCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-cluster",
+			Labels:     map[string]string{LabelCNVOperatorInstall: "false"},
+			Finalizers: []string{ManagedClusterFinalizer},
+		},
+	}
+
+	k8sClient := clientfake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(providerCrd, managedCluster).Build()
+	dynClient := fake.NewSimpleDynamicClient(scheme)
+
+	reconciler := &ManagedClusterReconciler{
+		Client:           k8sClient,
+		Scheme:           scheme,
+		DynamicClient:    dynClient,
+		ManagerNamespace: "open-cluster-management",
+	}
+
+	_, err := reconciler.Reconcile(context.TODO(),
+		reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-cluster"}})
+	assert.NoError(t, err)
+
+	// Advisor ClusterPermission must NOT be created.
+	_, err = dynClient.Resource(ClusterPermissionsGVR).Namespace("test-cluster").Get(
+		context.TODO(), "test-cluster-mtv-advisor", metav1.GetOptions{})
+	assert.True(t, apierrors.IsNotFound(err))
+}
+
+func TestCleanupManagedClusterResources_DeletesAdvisorClusterPermission(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clusterv1.Install(scheme)
+	_ = auth.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	managedCluster := &clusterv1.ManagedCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-cluster",
+			Finalizers: []string{ManagedClusterFinalizer},
+		},
+	}
+
+	cp := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": clusterPermissionAPIVersion,
+		"kind":       clusterPermissionKind,
+		"metadata":   map[string]interface{}{"name": "test-cluster-mtv", "namespace": "test-cluster"},
+	}}
+	cpAdvisor := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": clusterPermissionAPIVersion,
+		"kind":       clusterPermissionKind,
+		"metadata":   map[string]interface{}{"name": "test-cluster-mtv-advisor", "namespace": "test-cluster"},
+	}}
+
+	k8sClient := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(managedCluster).Build()
+	dynClient := fake.NewSimpleDynamicClient(scheme, cp, cpAdvisor)
+
+	reconciler := &ManagedClusterReconciler{
+		Client:        k8sClient,
+		Scheme:        scheme,
+		DynamicClient: dynClient,
+	}
+
+	err := reconciler.cleanupManagedClusterResources(context.TODO(), managedCluster)
+	assert.NoError(t, err)
+
+	_, err = dynClient.Resource(ClusterPermissionsGVR).Namespace("test-cluster").Get(
+		context.TODO(), "test-cluster-mtv", metav1.GetOptions{})
+	assert.True(t, apierrors.IsNotFound(err))
+
+	_, err = dynClient.Resource(ClusterPermissionsGVR).Namespace("test-cluster").Get(
+		context.TODO(), "test-cluster-mtv-advisor", metav1.GetOptions{})
+	assert.True(t, apierrors.IsNotFound(err))
+}
+
 func TestSecretNeedsUpdate(t *testing.T) {
 	reconciler := &ManagedClusterReconciler{}
 
