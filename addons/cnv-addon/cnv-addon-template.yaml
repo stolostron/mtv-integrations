@@ -33,57 +33,58 @@ spec:
           kind: HyperConverged
           metadata:
             name: kubevirt-hyperconverged
+            namespace: openshift-cnv
             annotations:
               deployOVS: 'false'
-            namespace: openshift-cnv
           spec:
-            virtualMachineOptions:
-              disableFreePageReporting: false
-              disableSerialConsoleLog: true
-            higherWorkloadDensity:
-              memoryOvercommitPercentage: 100
-            liveMigrationConfig:
-              allowAutoConverge: false
-              allowPostCopy: false
-              completionTimeoutPerGiB: 800
-              parallelMigrationsPerCluster: 5
-              parallelOutboundMigrationsPerNode: 2
-              progressTimeout: 150
-            certConfig:
-              ca:
-                duration: 48h0m0s
-                renewBefore: 24h0m0s
-              server:
-                duration: 24h0m0s
-                renewBefore: 12h0m0s
-            applicationAwareConfig:
-              allowApplicationAwareClusterResourceQuota: false
-              vmiCalcConfigName: DedicatedVirtualResources
-            featureGates:
-              decentralizedLiveMigration: true
-              deployTektonTaskResources: false
-              enableCommonBootImageImport: true
-              withHostPassthroughCPU: false
-              downwardMetrics: false
-              disableMDevConfiguration: false
-              enableApplicationAwareQuota: false
-              deployKubeSecondaryDNS: false
-              nonRoot: true
-              alignCPUs: false
-              enableManagedTenantQuota: false
-              primaryUserDefinedNetworkBinding: false
+            deployment:
+              applicationAwareConfig:
+                enable: false
+                vmiCalcConfigName: DedicatedVirtualResources
               deployVmConsoleProxy: false
-              persistentReservation: false
-              autoResourceLimits: false
-              deployKubevirtIpamController: false
-            workloadUpdateStrategy:
-              batchEvictionInterval: 1m0s
-              batchEvictionSize: 10
-              workloadUpdateMethods:
-                - LiveMigrate
-            uninstallStrategy: BlockUninstallIfWorkloadsExist
-            resourceRequirements:
+              uninstallStrategy: BlockUninstallIfWorkloadsExist
+            security:
+              certConfig:
+                ca:
+                  duration: 48h0m0s
+                  renewBefore: 24h0m0s
+                server:
+                  duration: 24h0m0s
+                  renewBefore: 12h0m0s
+            virtualization:
+              virtualMachineOptions:
+                disableFreePageReporting: false
+                disableSerialConsoleLog: true
+              higherWorkloadDensity:
+                memoryOvercommitPercentage: 100
+              liveMigrationConfig:
+                allowAutoConverge: false
+                allowPostCopy: false
+                completionTimeoutPerGiB: 800
+                parallelMigrationsPerCluster: 5
+                parallelOutboundMigrationsPerNode: 2
+                progressTimeout: 150
+              workloadUpdateStrategy:
+                batchEvictionInterval: 1m0s
+                batchEvictionSize: 10
+                workloadUpdateMethods:
+                  - LiveMigrate
               vmiCPUAllocationRatio: 10
+            featureGates:
+              - name: decentralizedLiveMigration
+                state: Enabled
+              - name: downwardMetrics
+                state: Disabled
+              - name: disableMDevConfiguration
+                state: Disabled
+              - name: deployKubeSecondaryDNS
+                state: Disabled
+              - name: alignCPUs
+                state: Disabled
+              - name: persistentReservation
+                state: Disabled
+            workloadSources:
+              enableCommonBootImageImport: true
         - apiVersion: rbac.authorization.k8s.io/v1
           kind: Role
           metadata:
