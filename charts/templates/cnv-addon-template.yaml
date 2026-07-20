@@ -126,6 +126,3 @@ spec:
               uninstallStrategy: BlockUninstallIfWorkloadsExist
             workloadSources:
               enableCommonBootImageImport: true
-            featureGates:
-              - name: decentralizedLiveMigration
-                state: Enabled
