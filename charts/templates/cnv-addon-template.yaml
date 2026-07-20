@@ -86,24 +86,10 @@ spec:
           kind: HyperConverged
           metadata:
             name: kubevirt-hyperconverged
-            namespace: openshift-cnv
             annotations:
               deployOVS: 'false'
+            namespace: openshift-cnv
           spec:
-            deployment:
-              applicationAwareConfig:
-                enable: false
-                vmiCalcConfigName: DedicatedVirtualResources
-              deployVmConsoleProxy: false
-              uninstallStrategy: BlockUninstallIfWorkloadsExist
-            security:
-              certConfig:
-                ca:
-                  duration: 48h0m0s
-                  renewBefore: 24h0m0s
-                server:
-                  duration: 24h0m0s
-                  renewBefore: 12h0m0s
             virtualization:
               virtualMachineOptions:
                 disableFreePageReporting: false
@@ -123,18 +109,23 @@ spec:
                 workloadUpdateMethods:
                   - LiveMigrate
               vmiCPUAllocationRatio: 10
+            security:
+              certConfig:
+                ca:
+                  duration: 48h0m0s
+                  renewBefore: 24h0m0s
+                server:
+                  duration: 24h0m0s
+                  renewBefore: 12h0m0s
+            deployment:
+              applicationAwareConfig:
+                allowApplicationAwareClusterResourceQuota: false
+                enable: false
+                vmiCalcConfigName: DedicatedVirtualResources
+              deployVmConsoleProxy: false
+              uninstallStrategy: BlockUninstallIfWorkloadsExist
+            workloadSources:
+              enableCommonBootImageImport: true
             featureGates:
               - name: decentralizedLiveMigration
                 state: Enabled
-              - name: downwardMetrics
-                state: Disabled
-              - name: disableMDevConfiguration
-                state: Disabled
-              - name: deployKubeSecondaryDNS
-                state: Disabled
-              - name: alignCPUs
-                state: Disabled
-              - name: persistentReservation
-                state: Disabled
-            workloadSources:
-              enableCommonBootImageImport: true
