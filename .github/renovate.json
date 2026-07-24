@@ -1,53 +1,5 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "addLabels": [
-    "ok-to-test"
-  ],
-  "baseBranchPatterns": [
-    "main",
-    "release-2.15"
-  ],
-  "prConcurrentLimit": 0,
-  "dependencyDashboard": true,
   "timezone": "America/New_York",
-  "dockerfile": {
-    "managerFilePatterns": [
-      "Dockerfile.rhtap"
-    ],
-    "ignorePaths": [
-      "**/Dockerfile"
-    ],
-    "pinDigests": false
-  },
-  "gomod": {
-    "packageRules": [
-      {
-        "matchDepTypes": [
-          "indirect"
-        ],
-        "enabled": false
-      },
-      {
-        "matchBaseBranches": [
-          "release-2.15"
-        ],
-        "matchManagers": [
-          "gomod"
-        ],
-        "enabled": false
-      }
-    ]
-  },
-  "vulnerabilityAlerts": {
-    "enabled": true
-  },
-  "osvVulnerabilityAlerts": true,
-  "packageRules": [
-    {
-      "groupName": "containerfile images [{{{baseBranch}}}]",
-      "matchManagers": [
-        "dockerfile"
-      ]
-    }
-  ]
+  "extends": ["github>stolostron/governance-policy-framework//.github/renovate_default"]
 }
