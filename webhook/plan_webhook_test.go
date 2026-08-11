@@ -2,14 +2,18 @@ package webhook
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	authenticationv1 "k8s.io/api/authentication/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic/fake"
+	"k8s.io/client-go/rest"
 )
 
 func TestBindingNamespacesCoverTarget(t *testing.T) {
@@ -267,6 +271,46 @@ func TestRawToPlan(t *testing.T) {
 		_, err := rawToPlan(runtime.RawExtension{Raw: []byte(`{`)})
 		require.Error(t, err)
 	})
+}
+
+// TestImpersonatedConfig_ConcurrentRequestsDoNotRace guards against regressing to a design where
+// the admission handler mutates a single shared rest.Config in place. That pattern lets one
+// request's Impersonate assignment be clobbered by a concurrent request before it's used,
+// causing an authorization check to run under the wrong user's identity. impersonatedConfig
+// must instead return an independent copy per call, so concurrent callers can neither observe
+// nor overwrite each other's impersonation identity. Run with `-race` to catch any reintroduced
+// shared mutable state.
+func TestImpersonatedConfig_ConcurrentRequestsDoNotRace(t *testing.T) {
+	t.Parallel()
+	base := rest.Config{Host: "https://hub.example.com"}
+
+	const n = 50
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			user := fmt.Sprintf("user-%d", i)
+			cfg := impersonatedConfig(base, authenticationv1.UserInfo{
+				Username: user,
+				Groups:   []string{fmt.Sprintf("group-%d", i)},
+				UID:      fmt.Sprintf("uid-%d", i),
+			})
+			if cfg.Impersonate.UserName != user {
+				errs[i] = fmt.Errorf("goroutine %d: got impersonated user %q, want %q", i, cfg.Impersonate.UserName, user)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	for _, err := range errs {
+		assert.NoError(t, err)
+	}
+
+	// The base config read by every goroutine above must remain untouched: per-request
+	// impersonation must never leak back into the value every request reads from.
+	assert.Equal(t, rest.ImpersonationConfig{}, base.Impersonate)
 }
 
 // userPermissionObject builds a cluster-scoped UserPermission unstructured for the fake dynamic client.
