@@ -303,6 +303,11 @@ FAKE_SEARCH_PORT ?= 19091
 FAKE_SEARCH_HOST ?= http://127.0.0.1:$(FAKE_SEARCH_PORT)
 FAKE_SEARCH_PID_FILE ?= .fake_search.pid
 run-instrument:
+	# The in-cluster manager deployment backs the Plan ValidatingWebhookConfiguration's Service.
+	# With failurePolicy: Fail, any Plan create/update issued before that pod is Available gets
+	# denied with a connection error instead of the request reaching our webhook logic at all, so
+	# wait for it here too (matches the existing wait in run-webhook-test) before ginkgo runs.
+	kubectl wait deployment -n ${NAMESPACE} mtv-integrations-controller --for condition=Available=True --timeout=180s
 	kubectl get secret ${SECRET_NAME} -n ${NAMESPACE} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
 	kubectl get secret ${SECRET_NAME} -n ${NAMESPACE} -o jsonpath='{.data.tls\.crt}' | base64 -d > tls.crt
 	kubectl get secret ${SECRET_NAME} -n ${NAMESPACE} -o jsonpath='{.data.tls\.key}' | base64 -d > tls.key
