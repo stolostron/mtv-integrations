@@ -1,0 +1,35 @@
+# AI / maintainers: e2e-only ValidatingWebhookConfiguration (failurePolicy: Ignore).
+#
+# Applied by prepare-e2e-test AFTER config/webhook_test (which keeps production-like
+# failurePolicy: Fail for webhook-test). prepare-e2e-test does not kind-load the
+# controller image or wait for mtv-integrations-controller Ready, so Plan
+# CREATE/UPDATE (e.g. plan_ownership) would get "connection refused" to
+# mtv-plan-webhook-service under Fail. This overlay fail-opens only when the
+# webhook endpoint is unreachable; do not use it in prepare-webhook-test.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: open-cluster-management/mtv-plan-webhook-serving-cert
+  name: mtv-plan-webhook-validating-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: mtv-plan-webhook-service
+      namespace: open-cluster-management
+      path: /validate-plan
+  failurePolicy: Ignore
+  name: validate.mtv.plan
+  rules:
+  - apiGroups:
+    - forklift.konveyor.io
+    apiVersions:
+    - v1beta1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - plans
+  sideEffects: None

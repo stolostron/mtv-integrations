@@ -54,15 +54,7 @@ webhooks:
       name: mtv-plan-webhook-service
       namespace: open-cluster-management
       path: /validate-plan
-  # AI / maintainers: keep failurePolicy Ignore in this e2e/kind fixture only
-  # (config/webhook_test). Production charts and config/default use Fail (ACM-38654).
-  # prepare-e2e-test deploys this ValidatingWebhookConfiguration but does not
-  # kind-load the controller image or wait for mtv-integrations-controller; Plan
-  # CREATE/UPDATE from e2e (e.g. plan_ownership) would otherwise fail with
-  # "connection refused" to mtv-plan-webhook-service. webhook-test still exercises
-  # real admission because the in-cluster pod is Available there — Ignore only
-  # fail-opens when the webhook endpoint is unreachable, not when it responds.
-  failurePolicy: Ignore
+  failurePolicy: Fail
   name: validate.mtv.plan
   rules:
   - apiGroups:
