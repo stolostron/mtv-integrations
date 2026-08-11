@@ -8,6 +8,7 @@ import (
 
 	"github.com/konveyor/forklift-controller/pkg/apis/forklift/v1beta1"
 	v1 "k8s.io/api/admission/v1"
+	authenticationv1 "k8s.io/api/authentication/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -54,13 +55,7 @@ func ValidateWebhook(c client.Client, config rest.Config) *webhook.Admission {
 
 				log = log.WithValues("cluster", clusterName, "namespace", targetNamespace)
 
-				config.Impersonate = rest.ImpersonationConfig{
-					UserName: req.UserInfo.Username,
-					Groups:   req.UserInfo.Groups,
-					UID:      req.UserInfo.UID,
-				}
-
-				dynamicClient, err := dynamic.NewForConfig(&config)
+				dynamicClient, err := dynamic.NewForConfig(impersonatedConfig(config, req.UserInfo))
 				if err != nil {
 					log.Error(err, "Failed to initialize dynamic client with impersonation")
 					return webhook.Denied("Failed to setup dynamic client")
@@ -82,6 +77,40 @@ func ValidateWebhook(c client.Client, config rest.Config) *webhook.Admission {
 			return webhook.Allowed("Plan validation passed")
 		}),
 	}
+}
+
+// impersonatedConfig returns a copy of base with Impersonate set for userInfo.
+//
+// The Handler is invoked concurrently for every admission request but closes over a single
+// shared rest.Config. Mutating that shared value in place (e.g. `config.Impersonate = ...`)
+// races across concurrent goroutines: one request's assignment can be overwritten by another's
+// before dynamic.NewForConfig snapshots it, letting a request's authorization check run under
+// the wrong user's identity. Returning a per-request copy here keeps each request's config
+// independent so concurrent requests can never observe or clobber each other's impersonation.
+func impersonatedConfig(base rest.Config, userInfo authenticationv1.UserInfo) *rest.Config {
+	cfg := base
+	cfg.Impersonate = rest.ImpersonationConfig{
+		UserName: userInfo.Username,
+		Groups:   userInfo.Groups,
+		UID:      userInfo.UID,
+		Extra:    copyExtra(userInfo.Extra),
+	}
+	return &cfg
+}
+
+// copyExtra converts UserInfo.Extra (map[string]authenticationv1.ExtraValue) into the
+// map[string][]string shape rest.ImpersonationConfig.Extra expects. Dropping Extra would let the
+// downstream authorization check see an incomplete requester identity, so every key/value is
+// carried over; slices are copied so the result never shares backing storage with the request.
+func copyExtra(extra map[string]authenticationv1.ExtraValue) map[string][]string {
+	if len(extra) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(extra))
+	for k, v := range extra {
+		out[k] = append([]string(nil), v...)
+	}
+	return out
 }
 
 func rawToPlan(rawExt runtime.RawExtension) (*v1beta1.Plan, error) {
