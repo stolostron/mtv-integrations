@@ -281,6 +281,10 @@ install-resources: _validate-refs
 kind-load-image: docker-build
 	kind load image-archive <($(CONTAINER_TOOL) save $(IMG)) --name $(KIND_NAME)
 
+prepare-e2e-test: kind-create-cluster cert-manager install-resources deploy
+	# Overlay Ignore failurePolicy for e2e only (webhook-test keeps Fail from config/webhook_test).
+	$(KUBECTL) apply -f ./test/resources/e2e/plan_webhook_failurepolicy_ignore.yaml
+
 prepare-webhook-test: kind-create-cluster create-user add-user cert-manager kind-load-image install-resources deploy patch-webhook-e2e-userpermission-names
 
 # kind cannot create UserPermission objects whose names contain ':' (RFC 1123). Point the webhook at DNS-safe mock names.
@@ -288,8 +292,6 @@ prepare-webhook-test: kind-create-cluster create-user add-user cert-manager kind
 patch-webhook-e2e-userpermission-names:
 	$(KUBECTL) set env deployment/mtv-integrations-controller -n open-cluster-management MTV_USERPERMISSION_NAMES=managedcluster-admin,kubevirt-io-admin --overwrite
 	$(KUBECTL) rollout status deployment/mtv-integrations-controller -n open-cluster-management --timeout=120s
-
-prepare-e2e-test: kind-create-cluster cert-manager install-resources deploy
 
 e2e-dependencies:
 	GOBIN=$(LOCALBIN) go install github.com/onsi/ginkgo/v2/ginkgo@$(shell awk '/github.com\/onsi\/ginkgo\/v2/ {print $$2}' go.mod)
