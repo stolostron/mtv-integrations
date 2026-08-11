@@ -295,17 +295,23 @@ func TestImpersonatedConfig_ConcurrentRequestsDoNotRace(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			user := fmt.Sprintf("user-%d", i)
+			group := fmt.Sprintf("group-%d", i)
+			uid := fmt.Sprintf("uid-%d", i)
 			extraKey := fmt.Sprintf("extra-%d", i)
 			extraVal := fmt.Sprintf("val-%d", i)
 			cfg := impersonatedConfig(base, authenticationv1.UserInfo{
 				Username: user,
-				Groups:   []string{fmt.Sprintf("group-%d", i)},
-				UID:      fmt.Sprintf("uid-%d", i),
+				Groups:   []string{group},
+				UID:      uid,
 				Extra:    map[string]authenticationv1.ExtraValue{extraKey: {extraVal}},
 			})
 			switch {
 			case cfg.Impersonate.UserName != user:
 				errs[i] = fmt.Errorf("goroutine %d: got impersonated user %q, want %q", i, cfg.Impersonate.UserName, user)
+			case len(cfg.Impersonate.Groups) != 1 || cfg.Impersonate.Groups[0] != group:
+				errs[i] = fmt.Errorf("goroutine %d: got groups %v, want [%q]", i, cfg.Impersonate.Groups, group)
+			case cfg.Impersonate.UID != uid:
+				errs[i] = fmt.Errorf("goroutine %d: got UID %q, want %q", i, cfg.Impersonate.UID, uid)
 			case len(cfg.Impersonate.Extra[extraKey]) != 1 || cfg.Impersonate.Extra[extraKey][0] != extraVal:
 				errs[i] = fmt.Errorf("goroutine %d: got impersonated extra %v, want {%q: [%q]}",
 					i, cfg.Impersonate.Extra, extraKey, extraVal)
@@ -315,7 +321,7 @@ func TestImpersonatedConfig_ConcurrentRequestsDoNotRace(t *testing.T) {
 	wg.Wait()
 
 	for i, err := range errs {
-		assert.NoError(t, err, "request %d must retain its own impersonated identity, including UserInfo.Extra", i)
+		assert.NoError(t, err, "request %d must retain its own impersonated identity, including Groups, UID, and Extra", i)
 	}
 
 	// The base config read by every goroutine above must remain untouched: per-request
@@ -329,12 +335,12 @@ func TestCopyExtra(t *testing.T) {
 
 	t.Run("nil input returns nil", func(t *testing.T) {
 		t.Parallel()
-		assert.Nil(t, copyExtra(nil))
+		assert.Nil(t, copyExtra(nil), "nil Extra input must remain nil")
 	})
 
 	t.Run("empty input returns nil", func(t *testing.T) {
 		t.Parallel()
-		assert.Nil(t, copyExtra(map[string]authenticationv1.ExtraValue{}))
+		assert.Nil(t, copyExtra(map[string]authenticationv1.ExtraValue{}), "empty Extra input must return nil")
 	})
 
 	t.Run("copies keys and values without sharing backing storage", func(t *testing.T) {
@@ -343,11 +349,13 @@ func TestCopyExtra(t *testing.T) {
 			"scopes": {"read", "write"},
 		}
 		got := copyExtra(src)
-		require.Equal(t, map[string][]string{"scopes": {"read", "write"}}, got)
+		require.Equal(t, map[string][]string{"scopes": {"read", "write"}}, got,
+			"copyExtra must preserve Extra keys and values")
 
 		// Mutating the copy must not affect the source ExtraValue slice.
 		got["scopes"][0] = "mutated"
-		assert.Equal(t, authenticationv1.ExtraValue{"read", "write"}, src["scopes"])
+		assert.Equal(t, authenticationv1.ExtraValue{"read", "write"}, src["scopes"],
+			"mutating the copied values must not change the source")
 	})
 }
 
