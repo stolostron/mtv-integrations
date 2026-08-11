@@ -295,25 +295,60 @@ func TestImpersonatedConfig_ConcurrentRequestsDoNotRace(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			user := fmt.Sprintf("user-%d", i)
+			extraKey := fmt.Sprintf("extra-%d", i)
+			extraVal := fmt.Sprintf("val-%d", i)
 			cfg := impersonatedConfig(base, authenticationv1.UserInfo{
 				Username: user,
 				Groups:   []string{fmt.Sprintf("group-%d", i)},
 				UID:      fmt.Sprintf("uid-%d", i),
+				Extra:    map[string]authenticationv1.ExtraValue{extraKey: {extraVal}},
 			})
-			if cfg.Impersonate.UserName != user {
+			switch {
+			case cfg.Impersonate.UserName != user:
 				errs[i] = fmt.Errorf("goroutine %d: got impersonated user %q, want %q", i, cfg.Impersonate.UserName, user)
+			case len(cfg.Impersonate.Extra[extraKey]) != 1 || cfg.Impersonate.Extra[extraKey][0] != extraVal:
+				errs[i] = fmt.Errorf("goroutine %d: got impersonated extra %v, want {%q: [%q]}",
+					i, cfg.Impersonate.Extra, extraKey, extraVal)
 			}
 		}(i)
 	}
 	wg.Wait()
 
-	for _, err := range errs {
-		assert.NoError(t, err)
+	for i, err := range errs {
+		assert.NoError(t, err, "request %d must retain its own impersonated identity, including UserInfo.Extra", i)
 	}
 
 	// The base config read by every goroutine above must remain untouched: per-request
 	// impersonation must never leak back into the value every request reads from.
-	assert.Equal(t, rest.ImpersonationConfig{}, base.Impersonate)
+	assert.Equal(t, rest.ImpersonationConfig{}, base.Impersonate,
+		"the shared base configuration must remain unchanged by any per-request impersonation copy")
+}
+
+func TestCopyExtra(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil input returns nil", func(t *testing.T) {
+		t.Parallel()
+		assert.Nil(t, copyExtra(nil))
+	})
+
+	t.Run("empty input returns nil", func(t *testing.T) {
+		t.Parallel()
+		assert.Nil(t, copyExtra(map[string]authenticationv1.ExtraValue{}))
+	})
+
+	t.Run("copies keys and values without sharing backing storage", func(t *testing.T) {
+		t.Parallel()
+		src := map[string]authenticationv1.ExtraValue{
+			"scopes": {"read", "write"},
+		}
+		got := copyExtra(src)
+		require.Equal(t, map[string][]string{"scopes": {"read", "write"}}, got)
+
+		// Mutating the copy must not affect the source ExtraValue slice.
+		got["scopes"][0] = "mutated"
+		assert.Equal(t, authenticationv1.ExtraValue{"read", "write"}, src["scopes"])
+	})
 }
 
 // userPermissionObject builds a cluster-scoped UserPermission unstructured for the fake dynamic client.

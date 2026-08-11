@@ -109,8 +109,24 @@ func impersonatedConfig(base rest.Config, userInfo authenticationv1.UserInfo) *r
 		UserName: userInfo.Username,
 		Groups:   userInfo.Groups,
 		UID:      userInfo.UID,
+		Extra:    copyExtra(userInfo.Extra),
 	}
 	return &cfg
+}
+
+// copyExtra converts UserInfo.Extra (map[string]authenticationv1.ExtraValue) into the
+// map[string][]string shape rest.ImpersonationConfig.Extra expects. Dropping Extra would let the
+// downstream authorization check see an incomplete requester identity, so every key/value is
+// carried over; slices are copied so the result never shares backing storage with the request.
+func copyExtra(extra map[string]authenticationv1.ExtraValue) map[string][]string {
+	if len(extra) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(extra))
+	for k, v := range extra {
+		out[k] = append([]string(nil), v...)
+	}
+	return out
 }
 
 func rawToPlan(rawExt runtime.RawExtension) (*v1beta1.Plan, error) {
