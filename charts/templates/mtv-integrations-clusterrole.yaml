@@ -49,15 +49,19 @@ rules:
   - ""
   resources:
   - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - namespaces
   verbs:
   - get
   - list
   - watch
   - create
-  - update
-  - patch
-  - delete
 - apiGroups:
   - forklift.konveyor.io
   resources:
