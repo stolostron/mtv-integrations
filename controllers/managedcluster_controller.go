@@ -390,12 +390,21 @@ func (r *ManagedClusterReconciler) syncProviderSecret(
 	return nil
 }
 
-// secretNeedsUpdate checks if the provider secret needs to be updated
+// secretNeedsUpdate checks if the provider secret needs to be updated.
+// Token is always kept in sync with the ManagedServiceAccount secret. cacert is
+// updated when the MSA CA is missing from the bundle; extra custom CA PEMs are
+// not treated as drift.
 func (r *ManagedClusterReconciler) secretNeedsUpdate(
 	providerSecret, sourceSecret *corev1.Secret,
 ) bool {
-	return !bytes.Equal(providerSecret.Data["cacert"], sourceSecret.Data["ca.crt"]) ||
-		!bytes.Equal(providerSecret.Data["token"], sourceSecret.Data["token"])
+	var currentCA, currentToken []byte
+	if providerSecret.Data != nil {
+		currentCA = providerSecret.Data["cacert"]
+		currentToken = providerSecret.Data["token"]
+	}
+	mergedCA := mergeCACert(currentCA, sourceSecret.Data["ca.crt"])
+	return !bytes.Equal(currentCA, mergedCA) ||
+		!bytes.Equal(currentToken, sourceSecret.Data["token"])
 }
 
 // updateProviderSecret updates the provider secret with new data
@@ -408,7 +417,11 @@ func (r *ManagedClusterReconciler) updateProviderSecret(
 		"namespace", MTVIntegrationsNamespace)
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, providerSecret, func() error {
-		providerSecret.Data["cacert"] = sourceSecret.Data["ca.crt"]
+		if providerSecret.Data == nil {
+			providerSecret.Data = map[string][]byte{}
+		}
+		providerSecret.Data["cacert"] = mergeCACert(
+			providerSecret.Data["cacert"], sourceSecret.Data["ca.crt"])
 		providerSecret.Data["token"] = sourceSecret.Data["token"]
 		return nil
 	})
