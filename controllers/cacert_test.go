@@ -75,20 +75,20 @@ func TestSecretNeedsUpdate_CAMerge(t *testing.T) {
 	bundle := concatPEM(customCA, clusterCA)
 
 	t.Run("custom extra CA is not drift when token matches", func(t *testing.T) {
-		provider := secretWithData("cacert", bundle, "token", []byte("tok"))
-		source := secretWithData("ca.crt", clusterCA, "token", []byte("tok"))
+		provider := secretWithData("cacert", bundle, []byte("tok"))
+		source := secretWithData("ca.crt", clusterCA, []byte("tok"))
 		assert.False(t, reconciler.secretNeedsUpdate(provider, source))
 	})
 
 	t.Run("token rotation still updates when custom CA is present", func(t *testing.T) {
-		provider := secretWithData("cacert", bundle, "token", []byte("old"))
-		source := secretWithData("ca.crt", clusterCA, "token", []byte("new"))
+		provider := secretWithData("cacert", bundle, []byte("old"))
+		source := secretWithData("ca.crt", clusterCA, []byte("new"))
 		assert.True(t, reconciler.secretNeedsUpdate(provider, source))
 	})
 
 	t.Run("default opaque mismatch still updates", func(t *testing.T) {
-		provider := secretWithData("cacert", []byte("cert1"), "token", []byte("tok"))
-		source := secretWithData("ca.crt", []byte("cert2"), "token", []byte("tok"))
+		provider := secretWithData("cacert", []byte("cert1"), []byte("tok"))
+		source := secretWithData("ca.crt", []byte("cert2"), []byte("tok"))
 		assert.True(t, reconciler.secretNeedsUpdate(provider, source))
 	})
 }
@@ -128,6 +128,6 @@ func caBundleHasCert(bundle, certPEM []byte) bool {
 	return false
 }
 
-func secretWithData(k1 string, v1 []byte, k2 string, v2 []byte) *corev1.Secret {
-	return &corev1.Secret{Data: map[string][]byte{k1: v1, k2: v2}}
+func secretWithData(caKey string, ca, token []byte) *corev1.Secret {
+	return &corev1.Secret{Data: map[string][]byte{caKey: ca, "token": token}}
 }
