@@ -286,10 +286,13 @@ func TestReconcile_CreatesProvider(t *testing.T) {
 	assert.NotNil(t, u)
 	assert.Equal(t, "test-cluster-mtv", u.GetName())
 	assert.Equal(t, "mtv-integrations", u.GetNamespace())
-	// Check that the Provider secret was created in the fake dynamic client
+	// Check that the Provider secret was created with MSA token and CA
+	providerSecret := &corev1.Secret{}
 	err = k8sClient.Get(context.TODO(),
-		types.NamespacedName{Name: "test-cluster-mtv", Namespace: "mtv-integrations"}, &corev1.Secret{})
+		types.NamespacedName{Name: "test-cluster-mtv", Namespace: "mtv-integrations"}, providerSecret)
 	assert.NoError(t, err)
+	assert.Equal(t, []byte("test-ca"), providerSecret.Data["cacert"])
+	assert.Equal(t, []byte("test-token"), providerSecret.Data["token"])
 }
 
 func TestCleanupManagedClusterResources_RemovesFinalizer(t *testing.T) {
@@ -653,4 +656,44 @@ func TestSecretNeedsUpdate(t *testing.T) {
 	}
 
 	assert.False(t, reconciler.secretNeedsUpdate(secret3, secret4))
+}
+
+func TestUpdateProviderSecret_PreservesCustomCAAndSyncsToken(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	clusterCA := testCertPEM(t, 1)
+	customCA := testCertPEM(t, 2)
+	bundle := concatPEM(customCA, clusterCA)
+
+	providerSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-cluster-mtv",
+			Namespace: MTVIntegrationsNamespace,
+		},
+		Data: map[string][]byte{
+			"cacert": bundle,
+			"token":  []byte("old-token"),
+		},
+	}
+	k8sClient := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(providerSecret).Build()
+	reconciler := &ManagedClusterReconciler{Client: k8sClient, Scheme: scheme}
+
+	sourceSecret := &corev1.Secret{
+		Data: map[string][]byte{
+			"ca.crt": clusterCA,
+			"token":  []byte("new-token"),
+		},
+	}
+
+	err := reconciler.updateProviderSecret(context.TODO(), providerSecret, sourceSecret)
+	require.NoError(t, err)
+
+	updated := &corev1.Secret{}
+	err = k8sClient.Get(context.TODO(), types.NamespacedName{
+		Name: "test-cluster-mtv", Namespace: MTVIntegrationsNamespace,
+	}, updated)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("new-token"), updated.Data["token"])
+	assert.Equal(t, bundle, updated.Data["cacert"])
 }
