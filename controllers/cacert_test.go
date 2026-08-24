@@ -66,6 +66,42 @@ func TestMergeCACert(t *testing.T) {
 		pool := x509.NewCertPool()
 		assert.True(t, pool.AppendCertsFromPEM(got), "Forklift uses AppendCertsFromPEM on cacert")
 	})
+
+	t.Run("trailing junk and invalid PEM blocks are stripped", func(t *testing.T) {
+		dirty := concatPEM(customCA, clusterCA)
+		dirty = append(dirty, []byte("-----BEGIN CERTIFICATE-----\ntest==\n-----END CERTIFICATE-----\n3")...)
+		got := mergeCACert(dirty, clusterCA)
+		assert.False(t, bytes.Contains(got, []byte("test==")))
+		_, clean := tlsCertsFromPEM(got)
+		assert.True(t, clean, "merged cacert must be only TLS-usable PEM certs")
+		assert.True(t, caBundleHasCert(got, customCA))
+		assert.True(t, caBundleHasCert(got, clusterCA))
+		pool := x509.NewCertPool()
+		assert.True(t, pool.AppendCertsFromPEM(got))
+		have, _ := tlsCertsFromPEM(got)
+		assert.Equal(t, 2, len(have))
+	})
+
+	t.Run("PEM that is not x509 is not preserved", func(t *testing.T) {
+		invalid := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("not-a-cert")})
+		got := mergeCACert(concatPEM(customCA, invalid), clusterCA)
+		assert.True(t, caBundleHasCert(got, customCA))
+		assert.True(t, caBundleHasCert(got, clusterCA))
+		assert.False(t, bytes.Contains(got, []byte("not-a-cert")))
+	})
+
+	t.Run("only non-x509 PEM is replaced with source", func(t *testing.T) {
+		invalid := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("not-a-cert")})
+		assert.Equal(t, clusterCA, mergeCACert(invalid, clusterCA))
+	})
+
+	t.Run("non-certificate PEM blocks are stripped", func(t *testing.T) {
+		keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("x")})
+		got := mergeCACert(concatPEM(customCA, clusterCA, keyPEM), clusterCA)
+		assert.False(t, bytes.Contains(got, []byte("PRIVATE KEY")))
+		assert.True(t, caBundleHasCert(got, customCA))
+		assert.True(t, caBundleHasCert(got, clusterCA))
+	})
 }
 
 func TestSecretNeedsUpdate_CAMerge(t *testing.T) {
@@ -89,6 +125,13 @@ func TestSecretNeedsUpdate_CAMerge(t *testing.T) {
 	t.Run("default opaque mismatch still updates", func(t *testing.T) {
 		provider := secretWithData("cacert", []byte("cert1"), []byte("tok"))
 		source := secretWithData("ca.crt", []byte("cert2"), []byte("tok"))
+		assert.True(t, reconciler.secretNeedsUpdate(provider, source))
+	})
+
+	t.Run("trailing junk is drift even when custom CA is present", func(t *testing.T) {
+		dirty := append(concatPEM(customCA, clusterCA), []byte("3")...)
+		provider := secretWithData("cacert", dirty, []byte("tok"))
+		source := secretWithData("ca.crt", clusterCA, []byte("tok"))
 		assert.True(t, reconciler.secretNeedsUpdate(provider, source))
 	})
 }
@@ -116,12 +159,13 @@ func concatPEM(parts ...[]byte) []byte {
 }
 
 func caBundleHasCert(bundle, certPEM []byte) bool {
-	want := pemCertificateDERs(certPEM)
+	want, _ := tlsCertsFromPEM(certPEM)
 	if len(want) != 1 {
 		return false
 	}
-	for _, der := range pemCertificateDERs(bundle) {
-		if bytes.Equal(der, want[0]) {
+	have, _ := tlsCertsFromPEM(bundle)
+	for _, cert := range have {
+		if bytes.Equal(cert.Raw, want[0].Raw) {
 			return true
 		}
 	}

@@ -392,7 +392,8 @@ func (r *ManagedClusterReconciler) syncProviderSecret(
 
 // secretNeedsUpdate checks if the provider secret needs to be updated.
 // Token is always kept in sync with the ManagedServiceAccount secret. cacert is
-// updated when the MSA CA is missing from the bundle; extra custom CA PEMs are
+// updated when the MSA CA is missing from the bundle, or when cacert has junk
+// that TLS/Forklift would not use. Extra custom CA PEMs that parse as x509 are
 // not treated as drift.
 func (r *ManagedClusterReconciler) secretNeedsUpdate(
 	providerSecret, sourceSecret *corev1.Secret,
