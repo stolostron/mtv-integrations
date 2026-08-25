@@ -10,6 +10,6 @@ keywords:
   - mtv
   - cnv
   - vm
-name: mtv-integrations-mtv
+name: mtv-integrations
 verified: "RHACM"
 version: 2.12.0
