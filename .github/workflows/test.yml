@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -23,7 +23,7 @@ jobs:
           make test
       - name: Upload unit test artifacts
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: artifacts-unit
           path: |
@@ -36,7 +36,7 @@ jobs:
       KIND_NAME: kind-cluster
     steps:
       - name: Clone the code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -50,7 +50,7 @@ jobs:
           make run-webhook-test
       - name: Upload webhook test artifacts
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: artifacts-webhook
           path: |
@@ -62,7 +62,7 @@ jobs:
       KIND_NAME: kind-cluster
     steps:
       - name: Clone the code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -76,7 +76,7 @@ jobs:
           [ -f report_e2e.json ] && mv report_e2e.json report_provider_crd.json || true
       - name: Upload provider CRD artifacts
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: artifacts-provider-crd
           path: |
@@ -90,7 +90,7 @@ jobs:
       KIND_NAME: kind-cluster
     steps:
       - name: Clone the code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -104,7 +104,7 @@ jobs:
           [ -f report_e2e.json ] && mv report_e2e.json report_e2e_main.json || true
       - name: Upload e2e test artifacts
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: artifacts-e2e
           path: |
@@ -121,7 +121,7 @@ jobs:
       KIND_NAME: kind-cluster
     steps:
       - name: Clone the code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
@@ -135,7 +135,7 @@ jobs:
 
       - name: Upload e2e test artifacts
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: artifacts-advisor
           path: |
@@ -154,9 +154,9 @@ jobs:
       - provider-crd-test
     steps:
       - name: Clone the code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Download test artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: artifacts-*
           merge-multiple: true
@@ -164,7 +164,7 @@ jobs:
       - name: Verify downloaded artifacts
         run: ls -la coverage*.out report*.json 2>/dev/null || echo "No coverage/report files found"
       - name: Upload artifacts for the sonarcloud workflow
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: artifacts
           path: |

@@ -36,7 +36,7 @@ MTV Integrations runs as a single Deployment in the `open-cluster-management` na
 
 1. **ManagedServiceAccount** — in the cluster's namespace on the hub; enables token rotation for secure hub-to-spoke communication.
 2. **ClusterPermission** — grants `cluster-admin` ClusterRoleBinding to the service account on the managed cluster.
-3. **Provider Secret** — in the `mtv-integrations` namespace; contains kubeconfig token, CA cert, and a `cacert` key for MTV compatibility.
+3. **Provider Secret** — in the `mtv-integrations` namespace; contains kubeconfig token, CA cert, and a `cacert` key for MTV compatibility. Extra TLS-usable PEM certificates in `cacert` (custom CAs that `AppendCertsFromPEM` would accept) are preserved; junk and non-x509 PEM are stripped. The MSA `ca.crt` is appended if missing. `token` continues to track MSA token rotation. Operator steps: [Custom CA for MTV provider secrets](CUSTOM_CA.md).
 4. **Forklift Provider CR** — registers the cluster as an OpenShift-type provider in the `mtv-integrations` namespace.
 
 **Cleanup:** finalizer (`mtv-integrations.open-cluster-management.io/resource-cleanup`) ensures all four resources are removed when the label is removed or the cluster is deleted.

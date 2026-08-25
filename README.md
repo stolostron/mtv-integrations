@@ -14,6 +14,8 @@ The **Provider Manager Controller** (implemented as the `ManagedClusterReconcile
 - Ensuring proper authentication and authorization for MTV operations
 - Coordinating with the MTV plan webhook for access control
 
+If a managed cluster API server uses a custom CA that is not in the ManagedServiceAccount `ca.crt`, append that CA to the provider secret. See [Custom CA for MTV provider secrets](docs/CUSTOM_CA.md).
+
 The **MTV plan webhook** is a validating admission webhook for the `Plan` resource (from the Forklift/MTV API). Its purpose is to enforce security and access control when users create or update migration plans.
 
 ## Addons
@@ -33,7 +35,7 @@ Both addons require ACM and the Policy addon. The CNV Addon targets clusters lab
 
 ## Architecture Summary
 
-For a detailed explanation of the controller and webhook architecture, see [architecture/README.md](architecture/README.md).
+For a detailed explanation of the controller and webhook architecture, see [architecture/README.md](architecture/README.md). For provider secret `cacert` and custom CAs, see [docs/CUSTOM_CA.md](docs/CUSTOM_CA.md).
 
 ## Installation
 

@@ -20,9 +20,8 @@ COPY webhook/ webhook/
 
 RUN CGO_ENABLED=1 GOFLAGS='-mod=readonly' go build -tags strictfipsruntime -a -o manager cmd/main.go
 
-# Use distroless as minimal base image to package the manager binary
-# Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM registry.redhat.io/ubi9/ubi-minimal:latest
+# PQC-enabled UBI9 minimal runtime (ACM-41610 / ACM-41557)
+FROM registry.redhat.io/ubi9/ubi-minimal-pqc:latest
 LABEL \
     name="rhacm2/mtv-integrations-rhel9" \
     cpe="cpe:/a:redhat:acm:2.16::el9" \
