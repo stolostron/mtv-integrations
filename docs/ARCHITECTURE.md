@@ -57,6 +57,8 @@ MTV Integrations runs as a single Deployment in the `open-cluster-management` na
 
 **Endpoint:** `/validate-plan` on the webhook server (port 9443, TLS).
 
+Hub **TLSSecurityProfile** (min TLS version, ciphers, TLS groups) applies to the webhook and secure metrics servers; see [TLS security profile](TLS_SECURITY_PROFILE.md).
+
 **Operations:** intercepts `CREATE` and `UPDATE` of `forklift.konveyor.io/v1beta1` Plan resources.
 
 **Authorization flow:**

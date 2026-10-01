@@ -331,13 +331,14 @@ func getInitialTLSProfile(restConfig *rest.Config) (apiconfigv1.TLSProfileSpec, 
 	}
 
 	applyAndLog := func(profileSpec apiconfigv1.TLSProfileSpec) (apiconfigv1.TLSProfileSpec, func(*tls.Config)) {
-		tlsConfigFunc, unsupportedCiphers := tlspkg.NewTLSConfigFromProfile(profileSpec)
-		if len(unsupportedCiphers) > 0 {
-			setupLog.Info("TLS profile contains unsupported ciphers (ignored)", "ciphers", unsupportedCiphers)
+		tlsConfigFunc, unsupported := tlsConfigFromProfileSpec(profileSpec)
+		if len(unsupported) > 0 {
+			setupLog.Info("TLS profile contains unsupported ciphers or groups (ignored)", "entries", unsupported)
 		}
 		setupLog.Info("TLS security profile loaded",
 			"minTLSVersion", profileSpec.MinTLSVersion,
 			"ciphers", profileSpec.Ciphers,
+			"groups", profileSpec.Groups,
 		)
 		return profileSpec, tlsConfigFunc
 	}
@@ -368,6 +369,8 @@ func setupTLSProfileWatcher(mgr ctrl.Manager, cancel context.CancelFunc, profile
 			setupLog.Info("TLS security profile changed, initiating graceful shutdown for reload",
 				"oldMinTLSVersion", oldSpec.MinTLSVersion,
 				"newMinTLSVersion", newSpec.MinTLSVersion,
+				"oldGroups", oldSpec.Groups,
+				"newGroups", newSpec.Groups,
 			)
 			cancel()
 		},

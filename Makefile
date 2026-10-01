@@ -108,12 +108,12 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 .PHONY: build
 build:  fmt vet ## Build manager binary.
-	$(GO_ENV_PREFIX) go build -a -o bin/manager cmd/main.go
+	$(GO_ENV_PREFIX) go build -a -o bin/manager ./cmd
 
 
 .PHONY: run
 run: fmt vet ## Run a controller from your host.
-	$(GO_ENV_PREFIX) go run ./cmd/main.go
+	$(GO_ENV_PREFIX) go run ./cmd
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
@@ -308,7 +308,7 @@ run-instrument:
 	kubectl get secret ${SECRET_NAME} -n ${NAMESPACE} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
 	kubectl get secret ${SECRET_NAME} -n ${NAMESPACE} -o jsonpath='{.data.tls\.crt}' | base64 -d > tls.crt
 	kubectl get secret ${SECRET_NAME} -n ${NAMESPACE} -o jsonpath='{.data.tls\.key}' | base64 -d > tls.key
-	go build -cover -o mtv_integrations_instrumented cmd/main.go
+	go build -cover -o mtv_integrations_instrumented ./cmd
 	mkdir -p coverage_profiles
 	GOCOVERDIR=coverage_profiles nohup ./mtv_integrations_instrumented --webhook-cert-path=. $${THANOS_HOST:+--thanos-host=$${THANOS_HOST}} $${SEARCH_API_ENDPOINT:+--search-api-endpoint=$${SEARCH_API_ENDPOINT}} >> test/e2e/e2e.log  2>&1 &
 
