@@ -3,9 +3,11 @@ approvers:
 - sahare
 - yiraeChristineKim
 - Ginxo
+- kurwang
 
 reviewers:
 - jnpacker
 - sahare
 - yiraeChristineKim
 - github-actions[bot]
+- kurwang
