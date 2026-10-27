@@ -73,15 +73,17 @@ func TestDiscoverSearchAPIEndpoint_CustomSearchNamespace(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		route    bool
+		host     string
 		expected string
 	}{
-		{"service", false, "https://search-search-api.ocm.svc:4010/searchapi/graphql"},
-		{"route", true, "https://search-api.ocm.example.com/searchapi/graphql"},
+		{"service", false, "", "https://search-search-api.ocm.svc:4010/searchapi/graphql"},
+		{"route with empty host", true, "", "https://search-search-api.ocm.svc:4010/searchapi/graphql"},
+		{"route", true, "search-api.ocm.example.com", "https://search-api.ocm.example.com/searchapi/graphql"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			objects := []*unstructured.Unstructured{searchCR("ocm")}
 			if tc.route {
-				objects = append(objects, searchRoute("ocm", "search-api.ocm.example.com"))
+				objects = append(objects, searchRoute("ocm", tc.host))
 			}
 			client := newAdvisorDynamicClient(t, objects...)
 			searchEndpoint, err := discoverSearchAPIEndpoint(context.Background(), client)
@@ -89,6 +91,16 @@ func TestDiscoverSearchAPIEndpoint_CustomSearchNamespace(t *testing.T) {
 			assert.Equal(t, tc.expected, searchEndpoint)
 		})
 	}
+}
+
+func TestDiscoverSearchAPIEndpoint_InvalidRouteHost(t *testing.T) {
+	route := searchRoute("ocm", "search-api.ocm.example.com")
+	route.Object["spec"] = map[string]interface{}{"host": int64(123)}
+	client := newAdvisorDynamicClient(t, searchCR("ocm"), route)
+
+	_, err := discoverSearchAPIEndpoint(context.Background(), client)
+	require.ErrorContains(t, err, "read Route ocm/search-api spec.host")
+	require.ErrorContains(t, err, "expected string")
 }
 
 func TestDiscoverSearchAPIEndpoint_DefaultSearchNamespace(t *testing.T) {
