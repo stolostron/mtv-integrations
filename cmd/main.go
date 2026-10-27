@@ -121,7 +121,10 @@ func routeHost(ctx context.Context, dynClient dynamic.Interface, namespace, rout
 		}
 		return "", fmt.Errorf("get Route %s/%s: %w", namespace, routeName, err)
 	}
-	host, _, _ := unstructured.NestedString(obj.Object, "spec", "host")
+	host, _, err := unstructured.NestedString(obj.Object, "spec", "host")
+	if err != nil {
+		return "", fmt.Errorf("read Route %s/%s spec.host: %w", namespace, routeName, err)
+	}
 	return host, nil
 }
 
