@@ -122,7 +122,11 @@ Remaining clusters are scored (CPU, memory, storage weighted total) and sorted d
 
 ## Endpoint Discovery and Overrides
 
-At startup, advisor can auto-discover route hosts. If discovery fails, empty values fall back to in-cluster service defaults inside clients.
+On each cluster-data refresh, advisor lists Search CRs and uses the CR namespace for the Search API service. If a `search-api` Route exists in that namespace, it uses the Route URL so the advisor can also run outside the cluster. When no Search CR is present, it uses the standard `open-cluster-management` namespace; a later Search installation is discovered on the next refresh. If multiple Search CRs exist, set `--search-api-endpoint` explicitly. The controller service account needs `list` on `searches.search.open-cluster-management.io`.
+
+If a discovered Search endpoint cannot be reached, the advisor returns an error and retries discovery on the next cluster-data refresh. It does not silently use a different Search installation. An explicit `--search-api-endpoint` is used as given.
+
+Thanos Route discovery continues to use `open-cluster-management-observability`.
 
 Useful flags:
 
