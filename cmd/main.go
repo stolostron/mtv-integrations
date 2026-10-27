@@ -100,7 +100,6 @@ func discoverSearchNamespace(ctx context.Context, dynClient dynamic.Interface) (
 		return migrationadvisor.DefaultSearchNamespace, nil
 	}
 	if err != nil {
-		// Unlike a Route lookup, a denied Search lookup cannot identify a safe service namespace.
 		return "", fmt.Errorf("list Search CRs: %w", err)
 	}
 	if len(list.Items) == 0 {
