@@ -85,61 +85,77 @@ var routeGVR = schema.GroupVersionResource{
 	Resource: "routes",
 }
 
-// discoverAdvisorEndpoints auto-discovers the OpenShift Route URLs for the ACM
-// Search API and Thanos Query Frontend. It is called at startup when the
-// corresponding flags are not set, so there is no need to look up Route URLs
-// manually when running the controller outside the cluster.
-//
-// Route names are stable across ACM/MCO installations:
-//   - search-api       in open-cluster-management
-//   - rbac-query-proxy in open-cluster-management-observability
-//
-// Returns empty strings for any endpoint that could not be discovered; the
-// clients will then fall back to their in-cluster service defaults.
-func discoverAdvisorEndpoints(
+var searchGVR = schema.GroupVersionResource{
+	Group:    "search.open-cluster-management.io",
+	Version:  "v1alpha1",
+	Resource: "searches",
+}
+
+// discoverSearchNamespace finds the Search CR so the service and Route are
+// resolved in the namespace where Search is actually installed. An absent CR
+// preserves the legacy default for installations without the Search CRD.
+func discoverSearchNamespace(ctx context.Context, dynClient dynamic.Interface) (string, error) {
+	list, err := dynClient.Resource(searchGVR).List(ctx, metav1.ListOptions{})
+	if apierrors.IsNotFound(err) {
+		return migrationadvisor.DefaultSearchNamespace, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("list Search CRs: %w", err)
+	}
+	if len(list.Items) == 0 {
+		return migrationadvisor.DefaultSearchNamespace, nil
+	}
+	if len(list.Items) != 1 {
+		return "", fmt.Errorf("found %d Search CRs; set --search-api-endpoint to select one", len(list.Items))
+	}
+	return list.Items[0].GetNamespace(), nil
+}
+
+func routeHost(ctx context.Context, dynClient dynamic.Interface, namespace, routeName string) (string, error) {
+	obj, err := dynClient.Resource(routeGVR).Namespace(namespace).Get(ctx, routeName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
+			setupLog.Info("Route not accessible, will use in-cluster default",
+				"namespace", namespace, "route", routeName)
+			return "", nil
+		}
+		return "", fmt.Errorf("get Route %s/%s: %w", namespace, routeName, err)
+	}
+	host, _, _ := unstructured.NestedString(obj.Object, "spec", "host")
+	return host, nil
+}
+
+// discoverSearchAPIEndpoint resolves Search on every advisor cache refresh so
+// a custom-namespace Search installation created after controller startup is found.
+func discoverSearchAPIEndpoint(
 	ctx context.Context,
 	dynClient dynamic.Interface,
-	searchEndpoint, thanosEndpoint string,
-) (string, string, error) {
-	routeHost := func(namespace, routeName string) (string, error) {
-		obj, err := dynClient.Resource(routeGVR).Namespace(namespace).Get(ctx, routeName, metav1.GetOptions{})
-		if err != nil {
-			if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
-				setupLog.Info("Route not accessible, will use in-cluster default",
-					"namespace", namespace, "route", routeName)
-				return "", nil
-			}
-			setupLog.Error(err, "Failed to lookup Route",
-				"namespace", namespace, "route", routeName)
-			return "", err
-		}
-		host, _, _ := unstructured.NestedString(obj.Object, "spec", "host")
-		return host, nil
+) (string, error) {
+	searchNamespace, err := discoverSearchNamespace(ctx, dynClient)
+	if err != nil {
+		return "", err
 	}
-
-	if searchEndpoint == "" {
-		host, err := routeHost("open-cluster-management", "search-api")
-		if err != nil {
-			return "", "", err
-		}
-		if host != "" {
-			searchEndpoint = fmt.Sprintf("https://%s/searchapi/graphql", host)
-			setupLog.Info("Discovered Search API Route", "endpoint", searchEndpoint)
-		}
+	host, err := routeHost(ctx, dynClient, searchNamespace, "search-api")
+	if err != nil {
+		return "", err
 	}
-
-	if thanosEndpoint == "" {
-		host, err := routeHost("open-cluster-management-observability", "rbac-query-proxy")
-		if err != nil {
-			return "", "", err
-		}
-		if host != "" {
-			thanosEndpoint = fmt.Sprintf("https://%s", host)
-			setupLog.Info("Discovered Thanos Route", "endpoint", thanosEndpoint)
-		}
+	if host != "" {
+		return fmt.Sprintf("https://%s/searchapi/graphql", host), nil
 	}
+	return migrationadvisor.SearchAPIServiceEndpoint(searchNamespace), nil
+}
 
-	return searchEndpoint, thanosEndpoint, nil
+func discoverThanosEndpoint(ctx context.Context, dynClient dynamic.Interface) (string, error) {
+	host, err := routeHost(ctx, dynClient, "open-cluster-management-observability", "rbac-query-proxy")
+	if err != nil {
+		return "", err
+	}
+	if host == "" {
+		return "", nil
+	}
+	endpoint := fmt.Sprintf("https://%s", host)
+	setupLog.Info("Discovered Thanos Route", "endpoint", endpoint)
+	return endpoint, nil
 }
 
 // runnableFunc adapts a plain function to the ctrl.Runnable interface so it
@@ -148,28 +164,18 @@ type runnableFunc func(ctx context.Context) error
 
 func (f runnableFunc) Start(ctx context.Context) error { return f(ctx) }
 
-func resolveAdvisorEndpoints(
-	dynamicClient dynamic.Interface,
-	searchAPIEndpoint, thanosHost string,
-) (string, string, error) {
-	if searchAPIEndpoint != "" && thanosHost != "" {
-		return searchAPIEndpoint, thanosHost, nil
+func resolveThanosEndpoint(dynamicClient dynamic.Interface, thanosHost string) (string, error) {
+	if thanosHost != "" {
+		return thanosHost, nil
 	}
 
 	discoverCtx, discoverCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer discoverCancel()
-	discoveredSearch, discoveredThanos, err := discoverAdvisorEndpoints(
-		discoverCtx, dynamicClient, searchAPIEndpoint, thanosHost)
+	discoveredThanos, err := discoverThanosEndpoint(discoverCtx, dynamicClient)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	if searchAPIEndpoint == "" {
-		searchAPIEndpoint = discoveredSearch
-	}
-	if thanosHost == "" {
-		thanosHost = discoveredThanos
-	}
-	return searchAPIEndpoint, thanosHost, nil
+	return discoveredThanos, nil
 }
 
 // waitForForkliftCRDsAndRestart polls the REST mapper until forklift.konveyor.io/v1beta1
@@ -262,6 +268,13 @@ func setupAdvisorServer(
 		CacheTTL:          advisorCacheTTL,
 		ServiceCAPath:     serviceCAPath,
 		TLSOpts:           tlsOpts,
+	}
+	if searchAPIEndpoint == "" {
+		advisorHandler.ResolveSearchAPIEndpoint = func(ctx context.Context) (string, error) {
+			discoverCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+			return discoverSearchAPIEndpoint(discoverCtx, dynamicClient)
+		}
 	}
 	advisorMux := http.NewServeMux()
 	advisorMux.Handle("/api/v1/migration-targets", advisorHandler)
@@ -413,7 +426,7 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.StringVar(&searchAPIEndpoint, "search-api-endpoint", "",
 		"Full URL of the ACM Search API GraphQL endpoint. "+
-			"Defaults to the in-cluster service (search-search-api.open-cluster-management.svc:4010). "+
+			"Defaults to the Search service in the Search CR namespace. "+
 			"For local testing pass the OpenShift Route URL, e.g. "+
 			"https://search-api-open-cluster-management.apps.<hub-domain>/searchapi/graphql")
 	flag.StringVar(&thanosHost, "thanos-host", "",
@@ -571,9 +584,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	searchAPIEndpoint, thanosHost, err = resolveAdvisorEndpoints(dynamicClient, searchAPIEndpoint, thanosHost)
+	thanosHost, err = resolveThanosEndpoint(dynamicClient, thanosHost)
 	if err != nil {
-		setupLog.Error(err, "failed to discover advisor endpoints")
+		setupLog.Error(err, "failed to discover Thanos endpoint")
 		os.Exit(1)
 	}
 

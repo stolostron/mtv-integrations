@@ -93,7 +93,10 @@ type Handler struct {
 	RestConfig *rest.Config
 	// SearchAPIEndpoint and ThanosHost allow overriding service endpoints for local testing.
 	SearchAPIEndpoint string
-	ThanosHost        string
+	// ResolveSearchAPIEndpoint discovers Search when no explicit endpoint is set.
+	// It is called when cluster data is refreshed so Search can appear after startup.
+	ResolveSearchAPIEndpoint func(context.Context) (string, error)
+	ThanosHost               string
 	// ServiceCAPath is the path to the OpenShift service CA bundle PEM file.
 	// It is added to the HTTP client's trust pool alongside the system root CAs so
 	// that both in-cluster HTTPS services (service CA) and external Routes
@@ -320,6 +323,14 @@ func (h *Handler) getClusterSnapshot(ctx context.Context) (clusterSnapshot, erro
 // Ceph metrics are non-fatal: missing Ceph data causes the scorer to use a
 // neutral storage score rather than failing the whole request.
 func (h *Handler) fetchFreshClusterData(ctx context.Context) (clusterSnapshot, error) {
+	searchEndpoint := h.SearchAPIEndpoint
+	if searchEndpoint == "" && h.ResolveSearchAPIEndpoint != nil {
+		var err error
+		searchEndpoint, err = h.ResolveSearchAPIEndpoint(ctx)
+		if err != nil {
+			return clusterSnapshot{}, fmt.Errorf("resolve Search API endpoint: %w", err)
+		}
+	}
 	obsClient := &ObservabilityClient{
 		RestConfig:    h.RestConfig,
 		ThanosHost:    h.ThanosHost,
@@ -328,7 +339,7 @@ func (h *Handler) fetchFreshClusterData(ctx context.Context) (clusterSnapshot, e
 	}
 	searchClient := &SearchClient{
 		RestConfig:        h.RestConfig,
-		SearchAPIEndpoint: h.SearchAPIEndpoint,
+		SearchAPIEndpoint: searchEndpoint,
 		ServiceCAPath:     h.ServiceCAPath,
 		TLSOpts:           h.TLSOpts,
 	}

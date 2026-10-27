@@ -39,7 +39,11 @@ func newSearchClient(serverURL string) *SearchClient {
 
 func TestSearchClientEndpoint_Default(t *testing.T) {
 	c := &SearchClient{RestConfig: &rest.Config{}}
-	assert.Equal(t, searchAPIService, c.endpoint())
+	assert.Equal(t, "https://search-search-api.open-cluster-management.svc:4010/searchapi/graphql", c.endpoint())
+}
+
+func TestSearchAPIServiceEndpoint_CustomNamespace(t *testing.T) {
+	assert.Equal(t, "https://search-search-api.ocm.svc:4010/searchapi/graphql", SearchAPIServiceEndpoint("ocm"))
 }
 
 func TestSearchClientEndpoint_Override(t *testing.T) {
@@ -146,6 +150,14 @@ func TestListStorageClassProvisionersByCluster_HTTPError(t *testing.T) {
 
 	_, err := newSearchClient(srv.URL).ListStorageClassProvisionersByCluster(context.Background())
 	assert.Error(t, err)
+}
+
+func TestListStorageClassProvisionersByCluster_DiscoveredEndpointUnavailable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	srv.Close()
+
+	_, err := newSearchClient(srv.URL).ListStorageClassProvisionersByCluster(context.Background())
+	require.ErrorContains(t, err, srv.URL)
 }
 
 func TestListStorageClassProvisionersByCluster_GraphQLErrors(t *testing.T) {
