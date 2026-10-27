@@ -88,7 +88,7 @@ Hub **TLSSecurityProfile** (min TLS version, ciphers, TLS groups) applies to the
 
 **HTTP client:** `httpclient.go` builds an `*http.Client` that authenticates with the bearer token from the rest config and trusts both the cluster API server CA and the OpenShift service CA (from a mounted ConfigMap at `/var/run/secrets/service-ca/service-ca.crt`). This is required for in-cluster HTTPS services like `search-search-api` that are signed by the OpenShift Service CA.
 
-**Endpoint discovery:** at startup, `cmd/main.go` auto-discovers ACM Search API and Thanos Query Frontend via OpenShift Routes (`search-api` in `open-cluster-management`, `rbac-query-proxy` in `open-cluster-management-observability`). Flags `--search-api-endpoint` and `--thanos-host` override this for local development.
+**Endpoint discovery:** on each advisor cluster-data refresh, `cmd/main.go` finds the Search CR and resolves its namespace for the Search API service or `search-api` Route. At startup it discovers the Thanos Query Frontend through the `rbac-query-proxy` Route in `open-cluster-management-observability`. Flags `--search-api-endpoint` and `--thanos-host` override discovery for local development.
 
 ## Addons (YAML-only)
 
