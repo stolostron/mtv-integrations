@@ -24,6 +24,7 @@ Repeat steps 1–3 on **every** cluster that participates in CCLM.
 ## Prerequisites
 
 - OpenShift Virtualization (**CNV**) **4.99+** on both spokes, **HyperConverged** **Available**
+- On **each** spoke, **KubeVirt** must include **`DecentralizedLiveMigration`** in **`spec.configuration.developerConfiguration.featureGates`** (decentralized / cross-cluster live migration is disabled without it). Inspect with **`oc get kubevirt kubevirt-kubevirt-hyperconverged -n openshift-cnv -o jsonpath='{.spec.configuration.developerConfiguration.featureGates}'`**. If the gate is missing, add it in Step 1b together with **`CrossClusterMigrationProxy`** (the **`GATES=`** **`jq`** merge includes both).
 - Pod **`virt-synchronization-controller`** running in **`openshift-cnv`**
 - **MTV 2.10+** on the **hub** (MTV 2.9 and earlier treat OpenShift Virtualization migrations as **cold** even when the Plan is live)
 - On the **hub**, confirm the Forklift controller enables live migration for OpenShift Virtualization (for example **`feature_ocp_live_migration: "true"`** on **`ForkliftController`**) before running a live migration Plan
@@ -80,7 +81,7 @@ if [[ -n "$EXISTING_CCN" ]] || [[ -n "$EXISTING_NET" ]]; then
 fi
 
 GATES=$(oc get kubevirt "$KV" -n "$NS" -o json | \
-  jq '[.spec.configuration.developerConfiguration.featureGates[]?, "CrossClusterMigrationProxy"] | unique')
+  jq '[.spec.configuration.developerConfiguration.featureGates[]?, "DecentralizedLiveMigration", "CrossClusterMigrationProxy"] | unique')
 
 MIGRATIONS=$(oc get kubevirt "$KV" -n "$NS" -o json | \
   jq '.spec.configuration.migrations // {} | . + {"decentralizedLiveMigrationDatapath": "Proxy"}')
@@ -202,7 +203,9 @@ endpoint=SynchronizationEndpointFound
 
 If `endpoint` is not `SynchronizationEndpointFound`, check Route/Service labels (`kubevirt.io/synchronization-endpoint=true`) and Route `targetPort` (`grpc`).
 
-From a **pod on the peer spoke** (not your workstation), confirm TLS reaches the peer sync Route (certificate validation should show the sync service identity). **`oc login`** only configures your kubeconfig; it does **not** run the check on the cluster. On the **peer** cluster, run a short-lived pod with `curl`, for example:
+From a **pod on the peer spoke** (not your workstation), run a **connectivity-only** check: TCP and TLS can reach the peer sync **Route** hostname on **443**. **`oc login`** only configures your kubeconfig; it does **not** run the command on the cluster.
+
+**`curl -vk`** skips server certificate verification (**`-k`**) — it confirms reachability and a TLS handshake, **not** that the certificate matches **kubevirt-ca** or the **kubevirt-external-ca** trust you configure in Step 3. Use it as a quick “can we open TLS to the Route?” test before CA exchange.
 
 ```bash
 PEER_ROUTE_HOST=virt-synchronization-endpoint-openshift-cnv.apps.<peer-cluster>
@@ -211,7 +214,9 @@ oc run tls-check --rm -i --restart=Never --image=registry.redhat.io/ubi9/ubi-min
   curl -vk "https://${PEER_ROUTE_HOST}" 2>&1 | head -20
 ```
 
-Replace **`<peer-cluster>`** and adjust **`-n default`** if your namespace policy differs. For **`openssl s_client`**, use an image that includes OpenSSL instead of `ubi-minimal`.
+Replace **`<peer-cluster>`** and adjust **`-n default`** if your namespace policy differs.
+
+**After Step 3** (peer CAs exchanged), verify the server certificate against the exchanged trust material — for example **`openssl s_client -connect "${PEER_ROUTE_HOST}:443" -servername "${PEER_ROUTE_HOST}" -CAfile peer-ca.pem`** from a pod that has **`peer-ca.pem`**, or **`curl`** **without** **`-k`** if the pod’s trust store includes the peer CA. Do **not** treat **`curl -vk`** alone as proof of correct service identity or CA trust.
 
 ---
 

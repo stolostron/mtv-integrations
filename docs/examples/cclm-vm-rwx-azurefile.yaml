@@ -34,6 +34,8 @@ spec:
         cpu:
           cores: 2
           model: Broadwell
+        memory:
+          guest: 4Gi
         devices:
           disks:
             - disk:
