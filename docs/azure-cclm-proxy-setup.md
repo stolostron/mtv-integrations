@@ -250,7 +250,16 @@ Only **`OK`** or **`FAIL`** is printed (no Route hostname in the output). **`cur
 
 Replace **`<peer-cluster>`** and adjust **`-n default`** if your namespace policy differs.
 
-**After Step 3** (peer CAs exchanged), verify the **peer CA chain** from a pod on the peer spoke that has **`peer-ca.pem`**, for example **`openssl s_client -connect "${PEER_ROUTE_HOST}:443" -servername "${PEER_ROUTE_HOST}" -verify_return_error -CAfile peer-ca.pem`**. The default sync serving certificate is aimed at **internal Service DNS** names, not the external **Route** hostname, so **`curl`** **without** **`-k`** may report a hostname mismatch even when CA exchange and Proxy connectivity are correct — do **not** treat that as a failure by itself. **`openssl s_client`** as shown does not assert hostname match; it focuses on chain validation with **`-verify_return_error`**. KubeVirt peers validate the exchanged CA and server cert for mTLS as documented in the user guide, not the Route SAN. Do **not** treat the **`OK` / `FAIL`** reachability check above as proof of correct CA trust.
+**After Step 3** (peer CAs exchanged), verify the **peer CA chain** from a pod on the peer spoke that has **`peer-ca.pem`**. Use **OpenSSL 1.1.1+** or **OpenSSL 3.x** (for example the **`openssl`** package on **ubi9/ubi-minimal**). Example:
+
+```bash
+openssl s_client -connect "${PEER_ROUTE_HOST}:443" -servername "${PEER_ROUTE_HOST}" \
+  -verify 8 -verify_return_error -CAfile peer-ca.pem </dev/null
+```
+
+**`-verify 8`** allows a deep enough chain for typical peer CA hierarchies; raise it if your environment uses more intermediates. **`-verify_return_error`** makes the process exit non-zero when chain verification fails (OpenSSL 1.1.1 can still complete a handshake and print an error without it; keep both flags).
+
+The default sync serving certificate is aimed at **internal Service DNS** names, not the external **Route** hostname, so **`curl`** **without** **`-k`** may report a hostname mismatch even when CA exchange and Proxy connectivity are correct — do **not** treat that as a failure by itself. This **`openssl s_client`** path does not assert hostname match; it validates the chain against **`peer-ca.pem`**. KubeVirt peers validate the exchanged CA and server cert for mTLS as documented in the user guide, not the Route SAN. Do **not** treat the **`OK` / `FAIL`** reachability check above as proof of correct CA trust.
 
 ---
 
@@ -260,9 +269,11 @@ Each cluster has its own KubeVirt CA in ConfigMap **`kubevirt-ca`**. Cross-clust
 
 Official flow ([user guide](https://github.com/kubevirt/user-guide/blob/main/docs/compute/decentralized_live_migration.md#configuring-kubevirt-ca-with-cross-cluster-live-migration)):
 
+**Serialize the two directions** so you are not patching **`kubevirt-external-ca`** on both clusters at once before either side has reconciled. Finish **B → A** (copy B’s material into A’s **`kubevirt-external-ca`**, apply, and confirm **`kubevirt-ca`** / operator status on A) before starting **A → B**.
+
 1. On **cluster B**, copy **`data.ca-bundle`** from **`kubevirt-ca`** in **`openshift-cnv`**.
 2. On **cluster A**, paste that bundle into ConfigMap **`kubevirt-external-ca`** (same namespace), key **`ca-bundle`**.
-3. Repeat **A → B** symmetrically.
+3. Repeat **A → B** symmetrically after step 2 is applied and verified on cluster A.
 
 On **cluster B**, extract the CA bundle to a file:
 
@@ -289,7 +300,9 @@ oc patch configmap kubevirt-external-ca -n openshift-cnv --type=merge \
   -p "$(jq -n --rawfile b peer-ca.pem '{data: {"ca-bundle": $b}}')"
 ```
 
-Wait until **`kubevirt-external-ca`** **`ca-bundle`** is empty again and **`kubevirt-ca`** on both clusters contains both issuers. Re-exchange when CAs rotate (often every ~2 days by default).
+Before replacing **`ca-bundle`** again (for example a new peer or rotation), wait until **KubeVirt** has finished reconciling the **previous** bundle—check **`kubevirt-ca`** and **`virt-operator`** / **`KubeVirt`** conditions on that cluster so you are not stacking concurrent edits. Some environments briefly clear or rewrite **`kubevirt-external-ca`** during reconcile; avoid racing a second **`patch`** against an in-flight update.
+
+Wait until **`kubevirt-ca`** on both clusters reflects the expected trust after **both** directions complete. Re-exchange when CAs rotate (often every ~2 days by default).
 
 **Scale limit:** every peer CA is merged into **`kubevirt-ca`**. A ConfigMap is capped at **1 MiB**. Customers who mesh many spokes (for example ~100 CCLM peers per cluster), especially with CA rotation retaining older certs, can hit updates that fail with size / “too large” errors. Prefer small peer sets (pairs or limited hubs), not a full mesh of every cluster into every `kubevirt-ca`.
 
@@ -431,13 +444,13 @@ If the hub reports **WaitForStateTransfer** or *check VMIM status*, run **`oc de
 | PrepareTarget / accessModes | Simple StorageMap missing **`accessMode`** | Add **`destination.accessMode`** on **`azurefile-csi`** → **ReadWriteMany** (extended map) |
 | CPU cores vs instance type | **`spec.instancetype`** + **`domain.cpu.cores`** | Remove instance type or use instance type only for sizing |
 | CDI chmod on azurefile | Blank DV on Azure Files | Clone from Bound image PVC on **`managed-csi`** |
-| Proxy settings reverted | HCO reconciled **KubeVirt** | Re-apply Step 1; consider pausing HCO during tests on 4.99 |
+| Proxy settings reverted | HCO reconciled **KubeVirt** | Re-apply **Step 1** — prefer **§1b** persistent **`HyperConverged`** config; consider pausing HCO during tests on 4.99 |
 
 ---
 
 ## Reference manifests in this repository
 
-Copy-paste starting points (edit names for your environment). Paths are **`docs/examples/...`** under the **repository root** (same layout as this doc’s branch).
+Copy-paste starting points (edit names for your environment). Paths are **`docs/examples/...`** under the **repository root** on this branch; the files are **`cross-cluster-sync-proxy.yaml`**, **`cclm-vm-rwx-azurefile.yaml`**, **`mtv-storagemap-cclm-simple.yaml`**, and **`mtv-storagemap-cclm.yaml`** (browse [`docs/examples/`](examples/) in the PR or on `main` after merge).
 
 | File | Content |
 |------|---------|
