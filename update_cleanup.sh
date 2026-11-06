@@ -56,9 +56,10 @@ fi
 for cluster in ${CLUSTERS}; do
   echo "--- Processing cluster: ${cluster} ---"
 
-  # Keep the addon ManifestWork limited to RBAC and OperatorPolicy. The
-  # HyperConverged resource is managed by the dependent hub Policy after the
-  # OperatorPolicy reports Compliant.
+  # Keep the HyperConverged object identity-only and ReadOnly during the
+  # ownership handoff. The dependent hub Policy creates/configures it after
+  # the OperatorPolicy reports Compliant. ReadOnly also removes the old Work
+  # owner reference without overwriting existing cluster customization.
   oc apply -f - <<EOF
 apiVersion: work.open-cluster-management.io/v1
 kind: ManifestWork
@@ -75,6 +76,13 @@ spec:
       resource: operatorpolicies
     updateStrategy:
       type: CreateOnly
+  - resourceIdentifier:
+      group: hco.kubevirt.io
+      name: kubevirt-hyperconverged
+      namespace: openshift-cnv
+      resource: hyperconvergeds
+    updateStrategy:
+      type: ReadOnly
   workload:
     manifests:
     - apiVersion: rbac.authorization.k8s.io/v1
@@ -130,6 +138,19 @@ spec:
           name: kubevirt-hyperconverged
           namespace: openshift-cnv
         upgradeApproval: Automatic
+    - apiVersion: hco.kubevirt.io/v1
+      kind: HyperConverged
+      metadata:
+        name: kubevirt-hyperconverged
+        namespace: openshift-cnv
+  deleteOption:
+    propagationPolicy: SelectivelyOrphan
+    selectivelyOrphans:
+      orphaningRules:
+      - group: hco.kubevirt.io
+        resource: hyperconvergeds
+        namespace: openshift-cnv
+        name: kubevirt-hyperconverged
 EOF
   echo "Applied ManifestWork for cluster: ${cluster}"
 

@@ -7,7 +7,7 @@ metadata:
     policy.open-cluster-management.io/categories: CM Configuration Management
     policy.open-cluster-management.io/controls: CM-2 Baseline Configuration
     policy.open-cluster-management.io/standards: NIST SP 800-53
-    policy.open-cluster-management.io/description: Create HyperConverged after the HCO OperatorPolicy is compliant.
+    policy.open-cluster-management.io/description: Create HyperConverged after the HCO OperatorPolicy is compliant, while preserving existing HyperConverged configuration on upgrade.
 spec:
   dependencies:
     - apiVersion: policy.open-cluster-management.io/v1beta1
@@ -25,7 +25,17 @@ spec:
         spec:
           remediationAction: enforce
           severity: low
-          object-templates:
+          object-templates-raw: |
+            {{`{{ $existing := lookup "hco.kubevirt.io/v1" "HyperConverged" "openshift-cnv" "kubevirt-hyperconverged" }}`}}
+            {{`{{ if $existing }}`}}
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: hco.kubevirt.io/v1
+                kind: HyperConverged
+                metadata:
+                  name: kubevirt-hyperconverged
+                  namespace: openshift-cnv
+            {{`{{ else }}`}}
             - complianceType: musthave
               objectDefinition:
                 apiVersion: hco.kubevirt.io/v1
@@ -85,3 +95,4 @@ spec:
                       state: Disabled
                     - name: persistentReservation
                       state: Disabled
+            {{`{{ end }}`}}

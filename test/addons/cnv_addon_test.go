@@ -1,12 +1,14 @@
 package addons_test
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
 	"testing"
+	"text/template"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/yaml"
@@ -74,7 +76,7 @@ func nestedSlice(t *testing.T, object map[string]interface{}, fields ...string) 
 	return value
 }
 
-func TestCNVAddonTemplatesDoNotApplyHyperConvergedDirectly(t *testing.T) {
+func TestCNVAddonTemplatesUseReadOnlyHyperConvergedHandoff(t *testing.T) {
 	templates := []struct {
 		name         string
 		path         string
@@ -98,13 +100,21 @@ func TestCNVAddonTemplatesDoNotApplyHyperConvergedDirectly(t *testing.T) {
 			addon := loadManifest(t, template.path, template.replacements)
 			manifests := nestedSlice(t, addon, "spec", "agentSpec", "workload", "manifests")
 			operatorPolicies := 0
+			hyperConvergedManifests := 0
 			for _, rawManifest := range manifests {
 				manifest, ok := rawManifest.(map[string]interface{})
 				if !ok {
 					t.Fatalf("manifest has unexpected type %T", rawManifest)
 				}
 				if manifest["kind"] == "HyperConverged" {
-					t.Fatal("HyperConverged must be created by the dependent hub Policy, not the addon ManifestWork")
+					hyperConvergedManifests++
+					metadata := nestedMap(t, manifest, "metadata")
+					if manifest["apiVersion"] != "hco.kubevirt.io/v1" || metadata["name"] != "kubevirt-hyperconverged" || metadata["namespace"] != "openshift-cnv" {
+						t.Fatalf("unexpected HyperConverged handoff identity: %#v", manifest)
+					}
+					if _, found, err := unstructured.NestedMap(manifest, "spec"); err != nil || found {
+						t.Fatalf("HyperConverged handoff manifest must not configure the CR, got spec %#v (error %v)", manifest["spec"], err)
+					}
 				}
 				if manifest["kind"] == "OperatorPolicy" {
 					operatorPolicies++
@@ -113,28 +123,45 @@ func TestCNVAddonTemplatesDoNotApplyHyperConvergedDirectly(t *testing.T) {
 			if operatorPolicies != 1 {
 				t.Fatalf("expected exactly one OperatorPolicy in the addon ManifestWork, got %d", operatorPolicies)
 			}
+			if hyperConvergedManifests != 1 {
+				t.Fatalf("expected one identity-only HyperConverged handoff manifest, got %d", hyperConvergedManifests)
+			}
+			assertSelectiveOrphanRule(t, addon, "spec", "agentSpec", "deleteOption")
 
 			manifestConfigs := nestedSlice(t, addon, "spec", "agentSpec", "manifestConfigs")
+			readOnlyHCO := false
+			createOnlyOperatorPolicy := false
 			for _, rawConfig := range manifestConfigs {
 				config, ok := rawConfig.(map[string]interface{})
 				if !ok {
 					t.Fatalf("manifest config has unexpected type %T", rawConfig)
 				}
 				identifier := nestedMap(t, config, "resourceIdentifier")
-				if identifier["group"] == "hco.kubevirt.io" {
-					t.Fatal("the addon ManifestWork must not track HyperConverged")
+				strategy := nestedMap(t, config, "updateStrategy")
+				switch identifier["group"] {
+				case "hco.kubevirt.io":
+					readOnlyHCO = identifier["resource"] == "hyperconvergeds" && identifier["name"] == "kubevirt-hyperconverged" && identifier["namespace"] == "openshift-cnv" && strategy["type"] == "ReadOnly"
+				case "policy.open-cluster-management.io":
+					createOnlyOperatorPolicy = identifier["resource"] == "operatorpolicies" && identifier["name"] == "kubevirt-hyperconverged-operator" && strategy["type"] == "CreateOnly"
 				}
+			}
+			if !readOnlyHCO || !createOnlyOperatorPolicy {
+				t.Fatalf("expected ReadOnly HyperConverged handoff and CreateOnly OperatorPolicy configs, got %#v", manifestConfigs)
 			}
 		})
 	}
 }
 
-func TestCNVHubPolicyWaitsForOperatorPolicyAndEnforcesHyperConverged(t *testing.T) {
+func TestCNVHubPolicyWaitsForOperatorPolicyAndPreservesCreateOnly(t *testing.T) {
 	staticPolicyPath := "addons/cnv-addon/cnv-hyperconverged-policy.yaml"
 	chartPolicyPath := "charts/templates/cnv-hyperconverged-policy.yaml"
 	staticPolicy := loadManifest(t, staticPolicyPath, nil)
 	chartPolicy := loadManifest(t, chartPolicyPath, map[string]string{
 		"{{ .Values.global.namespace }}": hubPolicyNamespace,
+		"{{`{{ $existing := lookup \"hco.kubevirt.io/v1\" \"HyperConverged\" \"openshift-cnv\" \"kubevirt-hyperconverged\" }}`}}": "{{ $existing := lookup \"hco.kubevirt.io/v1\" \"HyperConverged\" \"openshift-cnv\" \"kubevirt-hyperconverged\" }}",
+		"{{`{{ if $existing }}`}}": "{{ if $existing }}",
+		"{{`{{ else }}`}}":         "{{ else }}",
+		"{{`{{ end }}`}}":          "{{ end }}",
 	})
 
 	if !reflect.DeepEqual(staticPolicy, chartPolicy) {
@@ -184,18 +211,26 @@ func TestCNVHubPolicyWaitsForOperatorPolicyAndEnforcesHyperConverged(t *testing.
 	if configurationPolicySpec["remediationAction"] != "enforce" {
 		t.Fatalf("expected ConfigurationPolicy to enforce HyperConverged, got %v", configurationPolicySpec["remediationAction"])
 	}
-	objects := nestedSlice(t, definition, "spec", "object-templates")
-	if len(objects) != 1 {
-		t.Fatalf("expected one managed object, got %d", len(objects))
-	}
-	objectTemplate, ok := objects[0].(map[string]interface{})
+	rawTemplates, ok := configurationPolicySpec["object-templates-raw"].(string)
 	if !ok {
-		t.Fatalf("object template has unexpected type %T", objects[0])
+		t.Fatalf("expected ConfigurationPolicy object-templates-raw, got %T", configurationPolicySpec["object-templates-raw"])
 	}
-	hyperConverged := nestedMap(t, objectTemplate, "objectDefinition")
+
+	existingObject := renderHyperConvergedTemplate(t, rawTemplates, true)
+	existingDefinition := nestedMap(t, existingObject, "objectDefinition")
+	existingMetadata := nestedMap(t, existingDefinition, "metadata")
+	if existingDefinition["kind"] != "HyperConverged" || existingMetadata["name"] != "kubevirt-hyperconverged" || existingMetadata["namespace"] != "openshift-cnv" {
+		t.Fatalf("unexpected existing HyperConverged identity: %#v", existingDefinition)
+	}
+	if _, found, err := unstructured.NestedMap(existingDefinition, "spec"); err != nil || found {
+		t.Fatalf("existing HyperConverged must remain create-only; expected identity-only policy object, got spec %#v (error %v)", existingDefinition["spec"], err)
+	}
+
+	newObject := renderHyperConvergedTemplate(t, rawTemplates, false)
+	hyperConverged := nestedMap(t, newObject, "objectDefinition")
 	hyperConvergedMetadata := nestedMap(t, hyperConverged, "metadata")
 	if hyperConverged["kind"] != "HyperConverged" || hyperConvergedMetadata["name"] != "kubevirt-hyperconverged" || hyperConvergedMetadata["namespace"] != "openshift-cnv" {
-		t.Fatalf("unexpected managed object identity: %#v", hyperConverged)
+		t.Fatalf("unexpected new HyperConverged identity: %#v", hyperConverged)
 	}
 
 	wantFeatureGates := map[string]string{
@@ -227,6 +262,58 @@ func TestCNVHubPolicyWaitsForOperatorPolicyAndEnforcesHyperConverged(t *testing.
 	}
 }
 
+func renderHyperConvergedTemplate(t *testing.T, rawTemplates string, existing bool) map[string]interface{} {
+	t.Helper()
+
+	lookup := func(apiVersion, kind, namespace, name string) interface{} {
+		if apiVersion != "hco.kubevirt.io/v1" || kind != "HyperConverged" || namespace != "openshift-cnv" || name != "kubevirt-hyperconverged" {
+			t.Errorf("unexpected HyperConverged lookup: %s %s %s/%s", apiVersion, kind, namespace, name)
+		}
+		if !existing {
+			return ""
+		}
+
+		return map[string]interface{}{"kind": "HyperConverged"}
+	}
+
+	parsed, err := template.New("hyperconverged").Funcs(template.FuncMap{"lookup": lookup}).Parse(rawTemplates)
+	if err != nil {
+		t.Fatalf("parse HyperConverged policy template: %v", err)
+	}
+
+	var rendered bytes.Buffer
+	if err := parsed.Execute(&rendered, nil); err != nil {
+		t.Fatalf("render HyperConverged policy template: %v", err)
+	}
+
+	var objects []map[string]interface{}
+	if err := yaml.Unmarshal(rendered.Bytes(), &objects); err != nil {
+		t.Fatalf("parse rendered HyperConverged policy objects: %v\n%s", err, rendered.String())
+	}
+	if len(objects) != 1 {
+		t.Fatalf("expected one rendered HyperConverged object template, got %d", len(objects))
+	}
+
+	return objects[0]
+}
+
+func assertSelectiveOrphanRule(t *testing.T, object map[string]interface{}, fields ...string) {
+	t.Helper()
+
+	deleteOption := nestedMap(t, object, fields...)
+	if deleteOption["propagationPolicy"] != "SelectivelyOrphan" {
+		t.Fatalf("expected SelectivelyOrphan deletion, got %#v", deleteOption["propagationPolicy"])
+	}
+	rules := nestedSlice(t, deleteOption, "selectivelyOrphans", "orphaningRules")
+	if len(rules) != 1 {
+		t.Fatalf("expected one selectively orphaned resource, got %d", len(rules))
+	}
+	rule, ok := rules[0].(map[string]interface{})
+	if !ok || rule["group"] != "hco.kubevirt.io" || rule["resource"] != "hyperconvergeds" || rule["namespace"] != "openshift-cnv" || rule["name"] != "kubevirt-hyperconverged" {
+		t.Fatalf("unexpected selectively orphaned resource: %#v", rules[0])
+	}
+}
+
 func TestCNVHubPolicyBindingTargetsAddonPlacement(t *testing.T) {
 	staticBindingPath := "addons/cnv-addon/cnv-hyperconverged-policy-binding.yaml"
 	chartBindingPath := "charts/templates/cnv-hyperconverged-policy-binding.yaml"
@@ -253,16 +340,66 @@ func TestCNVHubPolicyBindingTargetsAddonPlacement(t *testing.T) {
 	}
 }
 
-func TestCleanupScriptDoesNotReapplyHyperConverged(t *testing.T) {
+func TestCleanupScriptUsesReadOnlyHyperConvergedHandoff(t *testing.T) {
 	script, err := os.ReadFile(filepath.Join(repoRoot(), "update_cleanup.sh"))
 	if err != nil {
 		t.Fatalf("read update_cleanup.sh: %v", err)
 	}
 	scriptText := string(script)
-	if strings.Contains(scriptText, "kind: HyperConverged") || strings.Contains(scriptText, "resource: hyperconvergeds") {
-		t.Fatal("update_cleanup.sh must not put HyperConverged back in the addon ManifestWork")
-	}
 	if !strings.Contains(scriptText, "cnv-hyperconverged-policy.yaml") || !strings.Contains(scriptText, "cnv-hyperconverged-policy-binding.yaml") {
 		t.Fatal("update_cleanup.sh must install the dependent hub Policy and PlacementBinding")
+	}
+
+	workStart := strings.Index(scriptText, "apiVersion: work.open-cluster-management.io/v1\nkind: ManifestWork")
+	if workStart < 0 {
+		t.Fatal("could not find the per-cluster ManifestWork in update_cleanup.sh")
+	}
+	workEnd := strings.Index(scriptText[workStart:], "\nEOF")
+	if workEnd < 0 {
+		t.Fatal("could not find the end of the per-cluster ManifestWork in update_cleanup.sh")
+	}
+	work := make(map[string]interface{})
+	if err := yaml.Unmarshal([]byte(scriptText[workStart:workStart+workEnd]), &work); err != nil {
+		t.Fatalf("parse update_cleanup.sh ManifestWork: %v", err)
+	}
+	assertSelectiveOrphanRule(t, work, "spec", "deleteOption")
+
+	manifestConfigs := nestedSlice(t, work, "spec", "manifestConfigs")
+	readOnlyHCO := false
+	for _, rawConfig := range manifestConfigs {
+		config, ok := rawConfig.(map[string]interface{})
+		if !ok {
+			t.Fatalf("ManifestWork config has unexpected type %T", rawConfig)
+		}
+		identifier := nestedMap(t, config, "resourceIdentifier")
+		strategy := nestedMap(t, config, "updateStrategy")
+		if identifier["group"] == "hco.kubevirt.io" {
+			readOnlyHCO = identifier["resource"] == "hyperconvergeds" && identifier["name"] == "kubevirt-hyperconverged" && identifier["namespace"] == "openshift-cnv" && strategy["type"] == "ReadOnly"
+		}
+	}
+	if !readOnlyHCO {
+		t.Fatalf("expected update_cleanup.sh to retain a ReadOnly HyperConverged handoff, got %#v", manifestConfigs)
+	}
+
+	manifests := nestedSlice(t, work, "spec", "workload", "manifests")
+	hyperConvergedFound := false
+	for _, rawManifest := range manifests {
+		manifest, ok := rawManifest.(map[string]interface{})
+		if !ok {
+			t.Fatalf("ManifestWork manifest has unexpected type %T", rawManifest)
+		}
+		if manifest["kind"] == "HyperConverged" {
+			hyperConvergedFound = true
+			metadata := nestedMap(t, manifest, "metadata")
+			if metadata["name"] != "kubevirt-hyperconverged" || metadata["namespace"] != "openshift-cnv" {
+				t.Fatalf("unexpected HyperConverged handoff identity: %#v", manifest)
+			}
+			if _, found, err := unstructured.NestedMap(manifest, "spec"); err != nil || found {
+				t.Fatalf("HyperConverged handoff manifest must not configure the CR, got spec %#v (error %v)", manifest["spec"], err)
+			}
+		}
+	}
+	if !hyperConvergedFound {
+		t.Fatal("update_cleanup.sh must retain the identity-only HyperConverged handoff manifest")
 	}
 }

@@ -20,6 +20,15 @@ spec:
           namespace: open-cluster-management-policies
         updateStrategy:
           type: CreateOnly
+      # Retain a read-only reference for one upgrade-safe handoff. Selective
+      # orphaning only takes effect after the Work reconciles this manifest.
+      - resourceIdentifier:
+          group: hco.kubevirt.io
+          resource: hyperconvergeds
+          name: kubevirt-hyperconverged
+          namespace: openshift-cnv
+        updateStrategy:
+          type: ReadOnly
     workload:
       manifests:
         - apiVersion: rbac.authorization.k8s.io/v1
@@ -75,3 +84,19 @@ spec:
               name: kubevirt-hyperconverged
               namespace: openshift-cnv
             upgradeApproval: Automatic
+        # The dependent hub Policy owns creation and configuration. This
+        # identity-only ReadOnly manifest lets upgrades remove the old
+        # ManifestWork owner reference without changing an existing CR.
+        - apiVersion: hco.kubevirt.io/v1
+          kind: HyperConverged
+          metadata:
+            name: kubevirt-hyperconverged
+            namespace: openshift-cnv
+    deleteOption:
+      propagationPolicy: SelectivelyOrphan
+      selectivelyOrphans:
+        orphaningRules:
+          - group: hco.kubevirt.io
+            resource: hyperconvergeds
+            namespace: openshift-cnv
+            name: kubevirt-hyperconverged

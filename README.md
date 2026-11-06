@@ -207,11 +207,13 @@ The script performs the following:
 
 1. Deletes the stale ACM 2.15 resources: `ClusterManagementAddOn` and `AddOnTemplate` named `kubevirt-hyperconverged-operator`
 2. Reads the `installer.namespace` label from the existing `ClusterManagementAddOn kubevirt-hyperconverged`, then applies the updated CNV AddOnTemplate and dependent hub Policy and re-applies the ClusterManagementAddOn with the correct `installStrategy.placements.namespace`
-3. For each managed cluster labeled `acm/cnv-operator-install: "true"`, re-applies the `ManifestWork` named `addon-kubevirt-hyperconverged-deploy-0` with the `Role`, `RoleBindings`, and OperatorPolicy. HyperConverged is managed separately by the dependent hub Policy after the OperatorPolicy reports `Compliant`.
+3. For each managed cluster labeled `acm/cnv-operator-install: "true"`, re-applies the `ManifestWork` named `addon-kubevirt-hyperconverged-deploy-0` with the `Role`, `RoleBindings`, OperatorPolicy, and an identity-only `ReadOnly` HyperConverged entry. The entry lets the Work relinquish ownership without creating or changing the CR; the dependent hub Policy creates it after the OperatorPolicy reports `Compliant`.
+
+During the transfer, the ManifestWork selectively orphans an existing HyperConverged resource instead of deleting it. The hub Policy checks only the identity of an existing resource, preserving its current spec and user customizations. If HyperConverged is absent, the Policy creates it with the add-on's configured defaults after the OperatorPolicy is compliant.
 
 ### CNV addon HyperConverged / webhook race
 
-Older CNV addon manifests delivered the HyperConverged custom resource in the same ManifestWork as the HCO OperatorPolicy. On slower managed clusters, HyperConverged could be validated before `hco-webhook-service` was ready and leave OLM in a failed state. The updated addon removes HyperConverged from the ManifestWork and applies it through a hub ConfigurationPolicy after the OperatorPolicy is Compliant.
+Older CNV addon manifests delivered the HyperConverged custom resource in the same ManifestWork as the HCO OperatorPolicy. On slower managed clusters, HyperConverged could be validated before `hco-webhook-service` was ready and leave OLM in a failed state. The updated addon relinquishes ownership of an existing HyperConverged resource without deleting or reconciling its spec. It keeps an identity-only `ReadOnly` entry so the Work can safely complete this handoff during upgrade. If the resource is absent, a hub ConfigurationPolicy creates it after the OperatorPolicy is Compliant.
 
 For clusters stuck from an earlier install, follow the [CNV HyperConverged recovery runbook](docs/CNV_HYPERCONVERGED_RECOVERY.md).
 

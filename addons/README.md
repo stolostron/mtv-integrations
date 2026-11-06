@@ -83,7 +83,7 @@ Note:
 
 ### HyperConverged readiness gate and recovery
 
-The CNV AddOnTemplate installs the HCO OperatorPolicy. A hub Policy targets the same placement and waits for that OperatorPolicy to report `Compliant` before a ConfigurationPolicy creates the HyperConverged resource. The addon ManifestWork does not contain HyperConverged, so HCO validation cannot race the initial operator installation.
+The CNV AddOnTemplate installs the HCO OperatorPolicy. A hub Policy targets the same placement and waits for that OperatorPolicy to report `Compliant` before a ConfigurationPolicy creates the HyperConverged resource. The addon ManifestWork retains an identity-only `ReadOnly` HyperConverged entry as an ownership handoff: it neither creates nor changes the CR, and selective orphaning lets the Work relinquish the old owner reference during upgrade. The hub Policy creates the full CR only after the operator is ready.
 
 For clusters that failed during an earlier install, see [Recovering a failed CNV HyperConverged install](../docs/CNV_HYPERCONVERGED_RECOVERY.md). The runbook explains how to remove a failed HyperConverged resource, recover a failed HCO CSV if needed, and let the dependent Policy recreate HyperConverged after the operator is healthy.
 
