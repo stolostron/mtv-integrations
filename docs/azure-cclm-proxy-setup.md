@@ -24,7 +24,7 @@ Repeat steps 1–3 on **every** cluster that participates in CCLM.
 ## Prerequisites
 
 - OpenShift Virtualization (**CNV**) **4.99+** on both spokes, **HyperConverged** **Available**
-- On **each** spoke, **KubeVirt** must include **`DecentralizedLiveMigration`** in **`spec.configuration.developerConfiguration.featureGates`** (decentralized / cross-cluster live migration is disabled without it). Inspect with **`oc get kubevirt kubevirt-kubevirt-hyperconverged -n openshift-cnv -o jsonpath='{.spec.configuration.developerConfiguration.featureGates}'`**. If the gate is missing, add it in Step 1b together with **`CrossClusterMigrationProxy`** (the **`GATES=`** **`jq`** merge includes both).
+- On **each** spoke, **KubeVirt** must include **`DecentralizedLiveMigration`** in **`spec.configuration.developerConfiguration.featureGates`** (decentralized / cross-cluster live migration is disabled without it). Inspect with **`oc get kubevirt kubevirt-kubevirt-hyperconverged -n openshift-cnv -o jsonpath='{.spec.configuration.developerConfiguration.featureGates}'`**. If the gate is missing, enable **`decentralizedLiveMigration`** on **`HyperConverged.spec.featureGates`** (HCO default is usually **Enabled**) or add it via **`HyperConverged`** **`jsonpatch`** in Step **1b**; **`CrossClusterMigrationProxy`** and **`decentralizedLiveMigrationDatapath: Proxy`** follow the same **§1b** pattern, or use the direct **KubeVirt** merge in Step **1c** for a short test.
 - Pod **`virt-synchronization-controller`** running in **`openshift-cnv`**
 - **MTV 2.10+** on the **hub** (MTV 2.9 and earlier treat OpenShift Virtualization migrations as **cold** even when the Plan is live)
 - On the **hub**, confirm the Forklift controller enables live migration for OpenShift Virtualization (for example **`feature_ocp_live_migration: "true"`** on **`ForkliftController`**) before running a live migration Plan
@@ -50,7 +50,34 @@ oc scale deployment/hco-operator deployment/virt-platform-autopilot -n openshift
 
 When you are done testing, scale them back to **1**. Restoring HCO may revert manual **KubeVirt** fields on some builds.
 
-### 1b. Patch the KubeVirt CR
+### 1b. Configure the feature gates and Proxy datapath (persistent)
+
+**HCO reconciles the KubeVirt CR from `HyperConverged`.** A direct **`oc patch kubevirt …`** can be overwritten on the next reconciliation. Prefer a **persistent** configuration path:
+
+1. **`spec.featureGates` on `HyperConverged`** — keep **`decentralizedLiveMigration`** **Enabled** (default on supported CNV builds). See [HCO cluster configuration — Feature gates](https://github.com/kubevirt/hyperconverged-cluster-operator/blob/main/docs/cluster-configuration.md#featuregates).
+2. **`kubevirt.kubevirt.io/jsonpatch` annotation on `HyperConverged`** — merge **experimental KubeVirt fields** (such as **`CrossClusterMigrationProxy`** and **`decentralizedLiveMigrationDatapath: Proxy`**) into the operand CR so **HCO** re-applies them after each reconcile. Same document: [cluster configuration](https://github.com/kubevirt/hyperconverged-cluster-operator/blob/main/docs/cluster-configuration.md) (search for **jsonpatch**).
+
+Example annotation (edit **only** if it matches your desired merge; duplicate **`add`** ops to **`featureGates/-`** can fail if the value already exists — use **`replace`** or adjust ops after inspecting the live **KubeVirt** spec):
+
+```yaml
+apiVersion: hco.kubevirt.io/v1
+kind: HyperConverged
+metadata:
+  name: kubevirt-hyperconverged
+  namespace: openshift-cnv
+  annotations:
+    kubevirt.kubevirt.io/jsonpatch: |-
+      [
+        {"op": "add", "path": "/spec/configuration/developerConfiguration/featureGates/-", "value": "CrossClusterMigrationProxy"},
+        {"op": "add", "path": "/spec/configuration/migrations/decentralizedLiveMigrationDatapath", "value": "Proxy"}
+      ]
+```
+
+Apply with **`oc apply -f …`** or **`oc patch hyperconverged kubevirt-hyperconverged -n openshift-cnv --type=merge -p '…'`**. After **HCO** reconciles, confirm **`datapath=Proxy`** (Step 1d) remains set **without** scaling reconcilers down.
+
+### 1c. Patch the KubeVirt CR directly (alternative / short tests only)
+
+Use when you need a **one-off** change or to validate behavior before encoding it in **`HyperConverged`**. Expect HCO to revert or merge over this on some builds — prefer **§1b** for production.
 
 Add the **`CrossClusterMigrationProxy`** feature gate (if missing) and set the migration datapath to **`Proxy`**.
 
@@ -104,7 +131,7 @@ migrations:
   decentralizedLiveMigrationDatapath: Proxy
 ```
 
-### 1c. Verify KubeVirt
+### 1d. Verify KubeVirt
 
 After **virt-operator** reconciles (up to a few minutes):
 
@@ -121,7 +148,7 @@ sync=
 endpoint=
 ```
 
-`datapath` must be **`Proxy`**. Empty `sync` / `endpoint` is normal until Step 2. If `datapath` is empty or reverts away from `Proxy`, HCO likely overwrote the KubeVirt CR — see Step 1a.
+`datapath` must be **`Proxy`**. Empty `sync` / `endpoint` is normal until Step 2. If `datapath` is empty or reverts away from `Proxy`, **persist the desired fields via `HyperConverged` (§1b)** instead of only patching **KubeVirt** — then re-check after **HCO** reconciliation resumes.
 
 ---
 
@@ -210,9 +237,12 @@ From a **pod on the peer spoke** (not your workstation), run a **connectivity-on
 ```bash
 PEER_ROUTE_HOST=virt-synchronization-endpoint-openshift-cnv.apps.<peer-cluster>
 
-oc run tls-check --rm -i --restart=Never --image=registry.redhat.io/ubi9/ubi-minimal:latest -n default -- \
-  curl -vk "https://${PEER_ROUTE_HOST}" 2>&1 | head -20
+oc run tls-check --rm -i --restart=Never --image=registry.redhat.io/ubi9/ubi-minimal:latest -n default \
+  --env "PEER_ROUTE_HOST=${PEER_ROUTE_HOST}" -- \
+  sh -c 'curl -sk --connect-timeout 8 -o /dev/null "https://${PEER_ROUTE_HOST}" && echo OK || echo FAIL'
 ```
+
+Only **`OK`** or **`FAIL`** is printed (no Route hostname in the output). **`curl -sk`** still skips certificate verification — this remains a **reachability** check, not identity validation.
 
 Replace **`<peer-cluster>`** and adjust **`-n default`** if your namespace policy differs.
 
