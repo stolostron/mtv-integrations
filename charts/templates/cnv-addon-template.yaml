@@ -48,7 +48,7 @@ spec:
             namespace: open-cluster-management-policies
           rules:
             - apiGroups: ["policy.open-cluster-management.io"]
-              resources: ["operatorpolicies"]
+              resources: ["operatorpolicies", "configurationpolicies"]
               verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
         - apiVersion: rbac.authorization.k8s.io/v1
           kind: RoleBinding

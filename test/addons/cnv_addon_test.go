@@ -182,6 +182,70 @@ func TestCNVAddonConfigurationMatchesHelmChart(t *testing.T) {
 	}
 }
 
+func TestCNVAddonWorkAgentsCanCreatePolicies(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		path         string
+		replacements map[string]string
+	}{
+		{name: "standalone", path: "addons/cnv-addon/cnv-addon-template.yaml"},
+		{
+			name: "chart", path: "charts/templates/cnv-addon-template.yaml",
+			replacements: map[string]string{
+				"{{ `{{CLUSTER_NAME}}` }}":     "{{CLUSTER_NAME}}",
+				"{{`{{HCO_TEMPLATE_START}}`}}": "{{HCO_TEMPLATE_START}}",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			addon := loadManifest(t, tc.path, tc.replacements)
+			manifests := nestedSlice(t, addon, "spec", "agentSpec", "workload", "manifests")
+			roleFound := false
+			bindings := map[string]string{
+				"operatorpolicy-manager-binding":        "klusterlet-work-sa",
+				"operatorpolicy-manager-hosted-binding": "klusterlet-{{CLUSTER_NAME}}-work-sa",
+			}
+			for _, raw := range manifests {
+				manifest := raw.(map[string]interface{})
+				metadata := nestedMap(t, manifest, "metadata")
+				switch manifest["kind"] {
+				case "Role":
+					if metadata["name"] != "operatorpolicy-manager" {
+						continue
+					}
+					roleFound = true
+					rules := nestedSlice(t, manifest, "rules")
+					if len(rules) != 1 {
+						t.Fatalf("expected one policy Role rule, got %#v", rules)
+					}
+					rule := rules[0].(map[string]interface{})
+					if !reflect.DeepEqual(nestedSlice(t, rule, "resources"),
+						[]interface{}{"operatorpolicies", "configurationpolicies"}) {
+						t.Fatalf("work agents need both policy resources, got %#v", rule["resources"])
+					}
+				case "RoleBinding":
+					name := metadata["name"].(string)
+					wantSubject, ok := bindings[name]
+					if !ok {
+						continue
+					}
+					if nestedMap(t, manifest, "roleRef")["name"] != "operatorpolicy-manager" {
+						t.Fatalf("%s must bind the policy Role", name)
+					}
+					subjects := nestedSlice(t, manifest, "subjects")
+					if len(subjects) != 1 || subjects[0].(map[string]interface{})["name"] != wantSubject {
+						t.Fatalf("%s has unexpected subjects: %#v", name, subjects)
+					}
+					delete(bindings, name)
+				}
+			}
+			if !roleFound || len(bindings) != 0 {
+				t.Fatalf("missing policy Role or work-agent bindings: role=%v, bindings=%#v", roleFound, bindings)
+			}
+		})
+	}
+}
+
 func TestCNVAddonTemplateDelimiterConfig(t *testing.T) {
 	standalone := loadManifestDocument(t, "addons/cnv-addon/cnv-clustermanagementaddon.yaml", 1, nil)
 	chart := loadManifestDocument(t, "charts/templates/cnv-clustermanagementaddon.yaml", 1, map[string]string{
