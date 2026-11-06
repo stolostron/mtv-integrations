@@ -16,7 +16,7 @@ The MTV Addon deploys the Migration Toolkit for Virtualization operator, which e
 
 ### Features
 - Deploys the MTV operator in the `openshift-mtv` namespace
-- Configures the ForkliftController with UI plugin (disabled), validation, and volume populator features
+- Configures the ForkliftController with UI plugin, validation, and volume populator features enabled
 - Uses OperatorPolicy to manage the operator lifecycle
 - Automatically upgrades the operator (Automatic approval)
 
@@ -38,7 +38,6 @@ The CNV Addon deploys the KubeVirt Hyperconverged operator, which provides virtu
 ### Features
 - Deploys the KubeVirt Hyperconverged operator in the `openshift-cnv` namespace
 - Keeps the editable HyperConverged configuration in the AddOnTemplate's ConfigurationPolicy
-- Sets up HostPathProvisioner for storage
 - Uses OperatorPolicy to manage the operator lifecycle
 - Automatically upgrades the operator (Automatic approval)
 
@@ -50,12 +49,10 @@ The CNV Addon deploys the KubeVirt Hyperconverged operator, which provides virtu
 ### Configuration
 The addon is configured with:
 - Stable channel for operator updates
-- Optimized HyperConverged settings including:
+- HyperConverged settings including:
   - Memory overcommit percentage: 100%
   - Live migration configuration
-  - Resource requirements
-  - Feature gates for enhanced functionality
-- HostPathProvisioner with 50Gi storage pool
+  - Feature gate states
 
 ## Installation
 
@@ -81,14 +78,13 @@ Note:
   * When removing the addon or the label, the operator is NOT uninstalled, you must clean it up manually on the target 
   cluster. This is done by logging into the cluster an removing the Operator from the console or cli.
 
-### HyperConverged readiness gate and recovery
+### HyperConverged creation gate
 
 The CNV AddOnTemplate installs one HCO OperatorPolicy and an enforcing ConfigurationPolicy named `kubevirt-hyperconverged-config`. Edit the HCO object under that ConfigurationPolicy's `spec.object-templates-raw` to customize the resource. The ConfigurationPolicy renders the HyperConverged object when the OperatorPolicy reports `Compliant`. The addon ManifestWork retains an identity-only `ReadOnly` HCO entry so an existing CR stays tracked during ManifestWork updates; that entry cannot create or change HCO. There is no separate hub Policy. OperatorPolicy compliance does not explicitly confirm ready endpoints for `hco-webhook-service`.
 
 The AddOnTemplate renderer normally consumes Go template delimiters before a ConfigurationPolicy can evaluate them. The AddOnDeploymentConfig in `cnv-clustermanagementaddon.yaml` supplies the `HCO_TEMPLATE_START` delimiter so the managed policy receives its OperatorPolicy lookup template. Keep that default config in the ClusterManagementAddOn. A per-cluster AddOnDeploymentConfig override must also define `HCO_TEMPLATE_START` with the value `{{`; otherwise the policy template will not render. The ConfigurationPolicy uses `CreateOnly`: new clusters receive the enforcing policy, while an existing managed ConfigurationPolicy keeps its current settings.
 
 The `ReadOnly` entry prevents an HCO already owned by the ManifestWork from being deleted just because the ManifestWork template changes. It does not remove an old `AppliedManifestWork` owner reference. Deleting the entire ManifestWork can still delete an HCO with that owner reference; removing the `ReadOnly` entry later requires a separate ownership migration.
-
 
 ## ClusterRole Permissions
 

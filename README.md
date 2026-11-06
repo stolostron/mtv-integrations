@@ -206,8 +206,8 @@ chmod +x update_cleanup.sh
 The script performs the following:
 
 1. Deletes the stale ACM 2.15 resources: `ClusterManagementAddOn` and `AddOnTemplate` named `kubevirt-hyperconverged-operator`
-2. Reads the `installer.namespace` label from the existing `ClusterManagementAddOn kubevirt-hyperconverged`, then applies the updated CNV AddOnTemplate and AddOnDeploymentConfig and re-applies the ClusterManagementAddOn with the correct `installStrategy.placements.namespace`
-3. For each managed cluster labeled `acm/cnv-operator-install: "true"`, re-applies the `ManifestWork` named `addon-kubevirt-hyperconverged-deploy-0` with the `Role`, `RoleBindings`, OperatorPolicy, ConfigurationPolicy, and an identity-only `ReadOnly` HCO entry. A newly created enforcing ConfigurationPolicy creates HCO after the OperatorPolicy reports `Compliant`; an existing ConfigurationPolicy retains its settings.
+2. Reads the `installer.namespace` label from the existing `ClusterManagementAddOn kubevirt-hyperconverged`, applies the AddOnDeploymentConfig, and re-applies the ClusterManagementAddOn with the correct `installStrategy.placements.namespace`
+3. Applies the updated CNV AddOnTemplate, then re-applies the `ManifestWork` named `addon-kubevirt-hyperconverged-deploy-0` on each managed cluster labeled `acm/cnv-operator-install: "true"`. The ManifestWork contains the `Role`, `RoleBindings`, OperatorPolicy, ConfigurationPolicy, and an identity-only `ReadOnly` HCO entry. A newly created enforcing ConfigurationPolicy creates HCO after the OperatorPolicy reports `Compliant`; an existing ConfigurationPolicy retains its settings.
 
 ### CNV addon HyperConverged / webhook race
 

@@ -92,12 +92,12 @@ Hub **TLSSecurityProfile** (min TLS version, ciphers, TLS groups) applies to the
 
 ## Addons (YAML-only)
 
-Under `addons/`, the OCM AddOnTemplate manifests and supporting hub Policy resources:
+Under `addons/`, the OCM AddOnTemplate manifests and supporting addon resources:
 
-- **CNV Addon** (`cnv-addon/`) — installs the KubeVirt Hyperconverged operator on clusters labeled `acm/cnv-operator-install: "true"` with OperatorPolicy. A dependent hub Policy creates a missing HyperConverged resource only after the OperatorPolicy reports `Compliant` and `hco-webhook-service` has a ready EndpointSlice address.
+- **CNV Addon** (`cnv-addon/`) — installs the KubeVirt Hyperconverged operator on clusters labeled `acm/cnv-operator-install: "true"` with OperatorPolicy. A managed ConfigurationPolicy creates a missing HyperConverged resource after the OperatorPolicy reports `Compliant`. The addon ManifestWork keeps an identity-only `ReadOnly` HCO entry to preserve existing resources during ManifestWork updates; OperatorPolicy compliance does not check webhook endpoint readiness.
 - **MTV Addon** (`mtv-addon/`) — installs the MTV operator in `openshift-mtv` on the hub. Enables UI plugin, validation, and volume populator features.
 
-Both require ACM and the Policy addon. They are applied directly with `oc apply -f`, not managed by the Go controller.
+Both require ACM and the Policy addon. Their manifests can be applied directly with `oc apply -f` or rendered from the Helm chart; the Go controller does not manage them.
 
 ## Key data flows
 
