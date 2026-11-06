@@ -1,0 +1,23 @@
+# StorageMap — storage class only (simple starting point).
+apiVersion: forklift.konveyor.io/v1beta1
+kind: StorageMap
+metadata:
+  name: cclm-azurefile
+  namespace: openshift-mtv
+spec:
+  map:
+    - source:
+        name: azurefile-csi
+      destination:
+        storageClass: azurefile-csi
+    - source:
+        name: managed-csi
+      destination:
+        storageClass: managed-csi
+  provider:
+    source:
+      name: cnv-1
+      namespace: openshift-mtv
+    destination:
+      name: cnv-2
+      namespace: openshift-mtv

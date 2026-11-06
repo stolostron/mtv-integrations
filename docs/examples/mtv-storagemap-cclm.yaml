@@ -1,0 +1,27 @@
+# StorageMap with accessMode / volumeMode (if PrepareTarget requires it).
+apiVersion: forklift.konveyor.io/v1beta1
+kind: StorageMap
+metadata:
+  name: cclm-azurefile
+  namespace: openshift-mtv
+spec:
+  map:
+    - source:
+        name: azurefile-csi
+      destination:
+        storageClass: azurefile-csi
+        accessMode: ReadWriteMany
+        volumeMode: Filesystem
+    - source:
+        name: managed-csi
+      destination:
+        storageClass: managed-csi
+        accessMode: ReadWriteOnce
+        volumeMode: Filesystem
+  provider:
+    source:
+      name: cnv-1
+      namespace: openshift-mtv
+    destination:
+      name: cnv-2
+      namespace: openshift-mtv

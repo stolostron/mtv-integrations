@@ -1,0 +1,47 @@
+# Example DataVolume + VirtualMachine for Azure CCLM testing (Step 4).
+# Clone from an existing Bound image PVC on managed-csi instead of blank DV on azurefile-csi.
+# Adjust storage size, PVC name, and provider references for your environment.
+---
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: DataVolume
+metadata:
+  name: cclm-rwx-root
+  namespace: default
+spec:
+  pvc:
+    accessModes:
+      - ReadWriteMany
+    resources:
+      requests:
+        storage: 50Gi
+    storageClassName: azurefile-csi
+    volumeMode: Filesystem
+  source:
+    pvc:
+      name: REPLACE_WITH_BOUND_IMAGE_PVC
+      namespace: openshift-virtualization-os-images
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: cclm-rwx-test
+  namespace: default
+spec:
+  runStrategy: Always
+  template:
+    spec:
+      domain:
+        cpu:
+          cores: 2
+          model: Broadwell
+        memory:
+          guest: 4Gi
+        devices:
+          disks:
+            - disk:
+                bus: virtio
+              name: rootdisk
+      volumes:
+        - name: rootdisk
+          dataVolume:
+            name: cclm-rwx-root
