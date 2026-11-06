@@ -151,30 +151,40 @@ func TestCNVAddonTemplatesUseReadOnlyHyperConvergedHandoff(t *testing.T) {
 			}
 			assertSelectiveOrphanRule(t, addon, "spec", "agentSpec", "deleteOption")
 
-			manifestConfigs := nestedSlice(t, addon, "spec", "agentSpec", "manifestConfigs")
-			readOnlyHCO := false
-			createOnlyOperatorPolicy := false
-			for _, rawConfig := range manifestConfigs {
-				config, ok := rawConfig.(map[string]interface{})
-				if !ok {
-					t.Fatalf("manifest config has unexpected type %T", rawConfig)
-				}
-				identifier := nestedMap(t, config, "resourceIdentifier")
-				strategy := nestedMap(t, config, "updateStrategy")
-				switch identifier["group"] {
-				case "hco.kubevirt.io":
-					readOnlyHCO = identifier["resource"] == "hyperconvergeds" &&
-						identifier["name"] == "kubevirt-hyperconverged" &&
-						identifier["namespace"] == "openshift-cnv" && strategy["type"] == "ReadOnly"
-				case "policy.open-cluster-management.io":
-					createOnlyOperatorPolicy = identifier["resource"] == "operatorpolicies" &&
-						identifier["name"] == "kubevirt-hyperconverged-operator" && strategy["type"] == "CreateOnly"
-				}
-			}
-			if !readOnlyHCO || !createOnlyOperatorPolicy {
-				t.Fatalf("expected ReadOnly HyperConverged handoff and CreateOnly OperatorPolicy configs, got %#v", manifestConfigs)
-			}
+			assertCNVAddonManifestConfigs(t, addon)
 		})
+	}
+}
+
+func assertCNVAddonManifestConfigs(t *testing.T, addon map[string]interface{}) {
+	t.Helper()
+	manifestConfigs := nestedSlice(t, addon, "spec", "agentSpec", "manifestConfigs")
+	readOnlyHCO := false
+	createOnlyOperatorPolicy := false
+	createOnlyConfigurationPolicy := false
+	for _, rawConfig := range manifestConfigs {
+		config, ok := rawConfig.(map[string]interface{})
+		if !ok {
+			t.Fatalf("manifest config has unexpected type %T", rawConfig)
+		}
+		identifier := nestedMap(t, config, "resourceIdentifier")
+		strategy := nestedMap(t, config, "updateStrategy")
+		switch identifier["resource"] {
+		case "hyperconvergeds":
+			readOnlyHCO = identifier["group"] == "hco.kubevirt.io" &&
+				identifier["name"] == "kubevirt-hyperconverged" &&
+				identifier["namespace"] == "openshift-cnv" && strategy["type"] == "ReadOnly"
+		case "operatorpolicies":
+			createOnlyOperatorPolicy = identifier["group"] == "policy.open-cluster-management.io" &&
+				identifier["name"] == "kubevirt-hyperconverged-operator" && strategy["type"] == "CreateOnly"
+		case "configurationpolicies":
+			createOnlyConfigurationPolicy = identifier["group"] == "policy.open-cluster-management.io" &&
+				identifier["name"] == "kubevirt-hyperconverged-config" &&
+				identifier["namespace"] == operatorPolicyNamespace && strategy["type"] == "CreateOnly"
+		}
+	}
+	if !readOnlyHCO || !createOnlyOperatorPolicy || !createOnlyConfigurationPolicy {
+		t.Fatalf("expected ReadOnly HCO and CreateOnly policy configs, got %#v", manifestConfigs)
 	}
 }
 
@@ -538,6 +548,7 @@ func TestCleanupScriptUsesReadOnlyHyperConvergedHandoff(t *testing.T) {
 
 	manifestConfigs := nestedSlice(t, work, "spec", "manifestConfigs")
 	readOnlyHCO := false
+	createOnlyConfigurationPolicy := false
 	for _, rawConfig := range manifestConfigs {
 		config, ok := rawConfig.(map[string]interface{})
 		if !ok {
@@ -550,9 +561,14 @@ func TestCleanupScriptUsesReadOnlyHyperConvergedHandoff(t *testing.T) {
 				identifier["name"] == "kubevirt-hyperconverged" &&
 				identifier["namespace"] == "openshift-cnv" && strategy["type"] == "ReadOnly"
 		}
+		if identifier["resource"] == "configurationpolicies" {
+			createOnlyConfigurationPolicy = identifier["group"] == "policy.open-cluster-management.io" &&
+				identifier["name"] == "kubevirt-hyperconverged-config" &&
+				identifier["namespace"] == operatorPolicyNamespace && strategy["type"] == "CreateOnly"
+		}
 	}
-	if !readOnlyHCO {
-		t.Fatalf("expected update_cleanup.sh to retain a ReadOnly HyperConverged handoff, got %#v", manifestConfigs)
+	if !readOnlyHCO || !createOnlyConfigurationPolicy {
+		t.Fatalf("expected ReadOnly HCO and CreateOnly ConfigurationPolicy in cleanup Work, got %#v", manifestConfigs)
 	}
 
 	manifests := nestedSlice(t, work, "spec", "workload", "manifests")

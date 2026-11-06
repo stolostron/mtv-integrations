@@ -20,9 +20,18 @@ spec:
           namespace: open-cluster-management-policies
         updateStrategy:
           type: CreateOnly
-      # Retain a read-only reference so the Work does not create or change the
-      # CR. An existing AppliedManifestWork owner reference needs a separate
-      # migration before the Work can be safely removed.
+      # Allow customers to edit the managed-cluster configuration after the
+      # addon creates it. The inform policy cannot create HyperConverged.
+      - resourceIdentifier:
+          group: policy.open-cluster-management.io
+          resource: configurationpolicies
+          name: kubevirt-hyperconverged-config
+          namespace: open-cluster-management-policies
+        updateStrategy:
+          type: CreateOnly
+      # Keep the identity-only HCO manifest until old Work ownership is
+      # migrated. ReadOnly avoids applying it; removing the tracked manifest
+      # while its old owner reference remains can delete the CR.
       - resourceIdentifier:
           group: hco.kubevirt.io
           resource: hyperconvergeds

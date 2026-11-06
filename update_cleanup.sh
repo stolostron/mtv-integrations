@@ -59,7 +59,8 @@ for cluster in ${CLUSTERS}; do
   # Keep the HyperConverged object identity-only and ReadOnly so the Work does
   # not create or change it. The dependent hub Policy creates a missing CR
   # after the OperatorPolicy is Compliant and the webhook has a ready endpoint.
-  # ReadOnly does not remove an existing AppliedManifestWork owner reference.
+  # ReadOnly does not remove an existing AppliedManifestWork owner reference;
+  # removing this tracked manifest before owner migration can delete the CR.
   oc apply -f - <<EOF
 apiVersion: work.open-cluster-management.io/v1
 kind: ManifestWork
@@ -74,6 +75,13 @@ spec:
       name: kubevirt-hyperconverged-operator
       namespace: open-cluster-management-policies
       resource: operatorpolicies
+    updateStrategy:
+      type: CreateOnly
+  - resourceIdentifier:
+      group: policy.open-cluster-management.io
+      name: kubevirt-hyperconverged-config
+      namespace: open-cluster-management-policies
+      resource: configurationpolicies
     updateStrategy:
       type: CreateOnly
   - resourceIdentifier:
