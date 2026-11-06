@@ -4,15 +4,24 @@ This runbook covers managed clusters where the older CNV addon applied the Hyper
 
 ## Apply the gated addon manifests
 
-Update the hub first so the addon ManifestWork no longer creates or configures HyperConverged and the dependent hub Policy is installed. Apply the updated chart, the manifests under `addons/cnv-addon/`, or run `update_cleanup.sh` from the repository root.
+Update the hub using the chart or `update_cleanup.sh`. For direct `oc apply`, apply `addons/cnv-addon/cnv-clustermanagementaddon.yaml` first; it contains both the ClusterManagementAddOn and its AddOnDeploymentConfig. Confirm the addon uses that config, then apply `cnv-addon-template.yaml`. Delete the old `binding-kubevirt-hyperconverged` PlacementBinding and `kubevirt-hyperconverged` Policy from `open-cluster-management-global-set`; otherwise the old hub policy remains active.
 
-The hub Policy waits for the spoke OperatorPolicy `kubevirt-hyperconverged-operator` in `open-cluster-management-policies` to report `Compliant`. When HyperConverged is absent, its ConfigurationPolicy also waits for a ready endpoint behind `hco-webhook-service`, then creates the CR from the `inform` ConfigurationPolicy in the CNV AddOnTemplate. The hub Policy does not define a second OperatorPolicy.
+The ConfigurationPolicy in the CNV AddOnTemplate checks the spoke OperatorPolicy `kubevirt-hyperconverged-operator` in `open-cluster-management-policies` for `Compliant`. It then creates the missing CR from the HCO definition inside its own template. The AddOnDeploymentConfig bundled with `cnv-clustermanagementaddon.yaml` supplies the delimiter needed to preserve the managed policy's Go templates through AddOnTemplate rendering. If a cluster overrides the default AddOnDeploymentConfig, its override must define `HCO_TEMPLATE_START` as `{{`. OperatorPolicy compliance does not explicitly confirm that `hco-webhook-service` has ready endpoints.
 
-On an upgrade, the updated addon retains an identity-only `ReadOnly` HyperConverged manifest. It does not create or change an existing CR. The hub Policy detects an existing resource and checks only its identity, preserving its spec and user customizations. `ReadOnly` does not remove an old AppliedManifestWork owner reference; a separate migration must remove that reference before the Work can be safely deleted. If HyperConverged is missing, the Policy creates it with the AddOnTemplate configuration after both readiness checks pass.
+The addon ManifestWork keeps an identity-only `ReadOnly` HCO entry to preserve tracking of existing CRs during ManifestWork updates. It does not create or modify HCO; the ConfigurationPolicy does that after the operator is compliant. An old `AppliedManifestWork` owner reference can remain on an existing HCO, so deleting the entire ManifestWork may still delete that CR.
 
 ## Recover the managed cluster
 
 Run the following commands against the affected managed cluster. Set `SPOKE_CONTEXT` to the kubeconfig context for that cluster.
+
+Before deleting HyperConverged, check the managed ConfigurationPolicy:
+
+```bash
+oc --context "$SPOKE_CONTEXT" get configurationpolicy kubevirt-hyperconverged-config \
+  -n open-cluster-management-policies -o jsonpath='{.spec.remediationAction}'
+```
+
+Continue only if it reports `enforce`. The AddOnTemplate uses `CreateOnly`, so an existing `inform` ConfigurationPolicy is not updated automatically and will not recreate a deleted HyperConverged resource.
 
 1. Remove the HyperConverged resource that failed validation:
 
@@ -43,10 +52,9 @@ Run the following commands against the affected managed cluster. Set `SPOKE_CONT
    oc --context "$SPOKE_CONTEXT" get csv -n openshift-cnv
    ```
 
-4. Confirm the webhook Service has ready endpoints, then check that the dependent hub Policy recreated HyperConverged:
+4. Check that the addon ConfigurationPolicy recreated HyperConverged:
 
    ```bash
-   oc --context "$SPOKE_CONTEXT" get endpoints hco-webhook-service -n openshift-cnv
    oc --context "$SPOKE_CONTEXT" get hyperconverged kubevirt-hyperconverged -n openshift-cnv
    ```
 

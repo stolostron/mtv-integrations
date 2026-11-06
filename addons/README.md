@@ -37,7 +37,7 @@ The CNV Addon deploys the KubeVirt Hyperconverged operator, which provides virtu
 
 ### Features
 - Deploys the KubeVirt Hyperconverged operator in the `openshift-cnv` namespace
-- Keeps the editable HyperConverged configuration in the AddOnTemplate and creates the CR through a gated hub Policy
+- Keeps the editable HyperConverged configuration in the AddOnTemplate's ConfigurationPolicy
 - Sets up HostPathProvisioner for storage
 - Uses OperatorPolicy to manage the operator lifecycle
 - Automatically upgrades the operator (Automatic approval)
@@ -83,11 +83,13 @@ Note:
 
 ### HyperConverged readiness gate and recovery
 
-The CNV AddOnTemplate installs the HCO OperatorPolicy and an `inform` ConfigurationPolicy named `kubevirt-hyperconverged-config`. Edit that ConfigurationPolicy's `spec.object-templates[0].objectDefinition` in the AddOnTemplate to customize the HyperConverged resource before a fresh install. The ConfigurationPolicy uses `CreateOnly` in the addon ManifestWork, so subsequent edits to the ConfigurationPolicy on the managed cluster are preserved; later AddOnTemplate edits do not update it. The `inform` policy only reports whether its desired configuration is present; it does not create or update the CR. On an existing CR with custom settings, it may report `NonCompliant` even though the hub Policy intentionally leaves that CR unchanged.
+The CNV AddOnTemplate installs one HCO OperatorPolicy and an enforcing ConfigurationPolicy named `kubevirt-hyperconverged-config`. Edit the HCO object under that ConfigurationPolicy's `spec.object-templates-raw` to customize the resource. The ConfigurationPolicy renders the HyperConverged object when the OperatorPolicy reports `Compliant`. The addon ManifestWork retains an identity-only `ReadOnly` HCO entry so an existing CR stays tracked during ManifestWork updates; that entry cannot create or change HCO. There is no separate hub Policy. OperatorPolicy compliance does not explicitly confirm ready endpoints for `hco-webhook-service`.
 
-A hub Policy targets the same placement and waits for the OperatorPolicy to report `Compliant`. It also checks for a ready endpoint behind `hco-webhook-service`, then reads the addon ConfigurationPolicy and creates a missing HyperConverged CR from its object definition. It keeps an existing CR identity-only, preserving the previous `CreateOnly` behavior. The addon ManifestWork also keeps an identity-only `ReadOnly` HyperConverged entry. `ReadOnly` does not remove an AppliedManifestWork owner reference left by an older Work; that owner reference needs a separate migration before deleting the Work.
+The AddOnTemplate renderer normally consumes Go template delimiters before a ConfigurationPolicy can evaluate them. The AddOnDeploymentConfig in `cnv-clustermanagementaddon.yaml` supplies the `HCO_TEMPLATE_START` delimiter so the managed policy receives its OperatorPolicy lookup template. Keep that default config in the ClusterManagementAddOn. A per-cluster AddOnDeploymentConfig override must also define `HCO_TEMPLATE_START` with the value `{{`; otherwise the policy template will not render. The ConfigurationPolicy uses `CreateOnly`: new clusters receive the enforcing policy, while an existing managed ConfigurationPolicy keeps its current settings.
 
-For clusters that failed during an earlier install, see [Recovering a failed CNV HyperConverged install](../docs/CNV_HYPERCONVERGED_RECOVERY.md). The runbook explains how to remove a failed HyperConverged resource, recover a failed HCO CSV if needed, and let the dependent Policy recreate HyperConverged after the operator is healthy.
+The `ReadOnly` entry prevents an HCO already owned by the ManifestWork from being deleted just because the ManifestWork template changes. It does not remove an old `AppliedManifestWork` owner reference. Deleting the entire ManifestWork can still delete an HCO with that owner reference; removing the `ReadOnly` entry later requires a separate ownership migration.
+
+For clusters that failed during an earlier install, see [Recovering a failed CNV HyperConverged install](../docs/CNV_HYPERCONVERGED_RECOVERY.md). The runbook explains how to recover a failed HCO CSV and verify the policy that manages HyperConverged.
 
 
 ## ClusterRole Permissions

@@ -27,7 +27,7 @@ This repository also contains two addons for OCM that enable container native vi
 **Quick summary:**
 
 - **MTV Addon:** Installs the Migration Toolkit for Virtualization operator in the `openshift-mtv` namespace on the hub, enabling VM migration features. It uses the `release-v5.0` channel and enables UI plugin, validation, and volume populator features.
-- **CNV Addon:** Installs the KubeVirt Hyperconverged operator in the `openshift-cnv` namespace with OperatorPolicy. A dependent hub Policy applies the optimized HyperConverged settings after the operator reports `Compliant`.
+- **CNV Addon:** Installs the KubeVirt Hyperconverged operator in the `openshift-cnv` namespace with OperatorPolicy. A managed ConfigurationPolicy creates the HyperConverged resource after the operator reports `Compliant`.
 
 Both addons require ACM and the Policy addon. The CNV Addon targets clusters labeled with `acm/cnv-operator-install: "true"`.
 
@@ -206,14 +206,12 @@ chmod +x update_cleanup.sh
 The script performs the following:
 
 1. Deletes the stale ACM 2.15 resources: `ClusterManagementAddOn` and `AddOnTemplate` named `kubevirt-hyperconverged-operator`
-2. Reads the `installer.namespace` label from the existing `ClusterManagementAddOn kubevirt-hyperconverged`, then applies the updated CNV AddOnTemplate and dependent hub Policy and re-applies the ClusterManagementAddOn with the correct `installStrategy.placements.namespace`
-3. For each managed cluster labeled `acm/cnv-operator-install: "true"`, re-applies the `ManifestWork` named `addon-kubevirt-hyperconverged-deploy-0` with the `Role`, `RoleBindings`, OperatorPolicy, and an identity-only `ReadOnly` HyperConverged entry. The entry stops the Work from creating or changing the CR; the dependent hub Policy creates a missing CR after the OperatorPolicy reports `Compliant` and the webhook has a ready endpoint.
-
-An existing HyperConverged resource keeps its AppliedManifestWork owner reference when the Work switches to `ReadOnly`. Remove that reference through a separate migration before deleting the Work. The hub Policy checks only the identity of an existing resource, preserving its current spec and user customizations. If HyperConverged is absent, the Policy creates it with the add-on's configured defaults after both readiness checks pass.
+2. Reads the `installer.namespace` label from the existing `ClusterManagementAddOn kubevirt-hyperconverged`, then applies the updated CNV AddOnTemplate and AddOnDeploymentConfig and re-applies the ClusterManagementAddOn with the correct `installStrategy.placements.namespace`
+3. For each managed cluster labeled `acm/cnv-operator-install: "true"`, re-applies the `ManifestWork` named `addon-kubevirt-hyperconverged-deploy-0` with the `Role`, `RoleBindings`, OperatorPolicy, ConfigurationPolicy, and an identity-only `ReadOnly` HCO entry. A newly created enforcing ConfigurationPolicy creates HCO after the OperatorPolicy reports `Compliant`; an existing ConfigurationPolicy retains its settings.
 
 ### CNV addon HyperConverged / webhook race
 
-Older CNV addon manifests delivered the HyperConverged custom resource in the same ManifestWork as the HCO OperatorPolicy. On slower managed clusters, HyperConverged could be validated before `hco-webhook-service` was ready and leave OLM in a failed state. The updated addon keeps an identity-only `ReadOnly` entry so the Work does not create or change the CR. If the resource is absent, a hub ConfigurationPolicy creates it after the OperatorPolicy is `Compliant` and an EndpointSlice for the webhook Service has a ready endpoint. While the endpoint is unavailable, the ConfigurationPolicy emits no object templates and can report `Compliant` even though HyperConverged is absent; check the endpoint and CR directly when diagnosing an install.
+Older CNV addon manifests delivered the HyperConverged custom resource in the same ManifestWork as the HCO OperatorPolicy. On slower managed clusters, HyperConverged could be validated before `hco-webhook-service` was ready and leave OLM in a failed state. The updated addon keeps only an identity-only `ReadOnly` entry so the ManifestWork cannot create or change HCO; a managed ConfigurationPolicy creates it after the OperatorPolicy is `Compliant`. The entry keeps an existing HCO tracked during ManifestWork updates. OperatorPolicy compliance does not explicitly confirm ready webhook endpoints, so a webhook timing gap remains possible.
 
 For clusters stuck from an earlier install, follow the [CNV HyperConverged recovery runbook](docs/CNV_HYPERCONVERGED_RECOVERY.md).
 
