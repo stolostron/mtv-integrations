@@ -37,14 +37,14 @@ The CNV Addon deploys the KubeVirt Hyperconverged operator, which provides virtu
 
 ### Features
 - Deploys the KubeVirt Hyperconverged operator in the `openshift-cnv` namespace
-- Configures HyperConverged custom resource with optimized settings
+- Creates the HyperConverged custom resource through a hub ConfigurationPolicy after the HCO OperatorPolicy is Compliant
 - Sets up HostPathProvisioner for storage
 - Uses OperatorPolicy to manage the operator lifecycle
 - Automatically upgrades the operator (Automatic approval)
 
 ### Requirements
 - ACM installed
-- Policy addon installed (for OperatorPolicy) on the managed cluster
+- Policy addon installed on the hub and managed clusters
 - Target cluster must be labeled with `acm/cnv-operator-install: "true"`
 
 ### Configuration
@@ -80,6 +80,12 @@ Note:
   * To target a cluster for the CNV operator,  label it with `acm/cnv-operator-install: "true"` to initiate a deploy
   * When removing the addon or the label, the operator is NOT uninstalled, you must clean it up manually on the target 
   cluster. This is done by logging into the cluster an removing the Operator from the console or cli.
+
+### HyperConverged readiness gate and recovery
+
+The CNV AddOnTemplate installs the HCO OperatorPolicy. A hub Policy targets the same placement and waits for that OperatorPolicy to report `Compliant` before a ConfigurationPolicy creates the HyperConverged resource. The addon ManifestWork does not contain HyperConverged, so HCO validation cannot race the initial operator installation.
+
+For clusters that failed during an earlier install, see [Recovering a failed CNV HyperConverged install](../docs/CNV_HYPERCONVERGED_RECOVERY.md). The runbook explains how to remove a failed HyperConverged resource, recover a failed HCO CSV if needed, and let the dependent Policy recreate HyperConverged after the operator is healthy.
 
 
 ## ClusterRole Permissions

@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "=== Step 1: Cleaning up old addon resources ==="
 oc delete clustermanagementaddon kubevirt-hyperconverged-operator --ignore-not-found
 oc delete addontemplate kubevirt-hyperconverged-operator --ignore-not-found
@@ -15,7 +17,11 @@ if [ -z "${INSTALLER_NAMESPACE}" ]; then
 fi
 echo "Found installer.namespace: ${INSTALLER_NAMESPACE}"
 
-echo "=== Step 3: Applying ClusterManagementAddOn with correct namespace ==="
+echo "=== Step 3: Applying the gated CNV addon resources ==="
+oc apply -f "${SCRIPT_DIR}/addons/cnv-addon/cnv-addon-template.yaml"
+oc apply -f "${SCRIPT_DIR}/addons/cnv-addon/cnv-hyperconverged-policy.yaml"
+oc apply -f "${SCRIPT_DIR}/addons/cnv-addon/cnv-hyperconverged-policy-binding.yaml"
+
 oc apply -f - <<EOF
 apiVersion: addon.open-cluster-management.io/v1beta1
 kind: ClusterManagementAddOn
@@ -38,7 +44,7 @@ spec:
       namespace: ${INSTALLER_NAMESPACE}
 EOF
 
-echo "=== Step 4: Reordering ManifestWork resources per cluster ==="
+echo "=== Step 4: Updating ManifestWork resources per cluster ==="
 CLUSTERS=$(oc get managedcluster -l 'acm/cnv-operator-install=true' \
   -o jsonpath='{.items[*].metadata.name}')
 
@@ -50,8 +56,9 @@ fi
 for cluster in ${CLUSTERS}; do
   echo "--- Processing cluster: ${cluster} ---"
 
-  # Re-apply the ManifestWork with RBAC placed before OperatorPolicy so that
-  # klusterlet-work-sa has the required permissions when OperatorPolicy is applied.
+  # Keep the addon ManifestWork limited to RBAC and OperatorPolicy. The
+  # HyperConverged resource is managed by the dependent hub Policy after the
+  # OperatorPolicy reports Compliant.
   oc apply -f - <<EOF
 apiVersion: work.open-cluster-management.io/v1
 kind: ManifestWork
@@ -62,10 +69,10 @@ spec:
   manifestConfigs:
   - feedbackScrapeType: Poll
     resourceIdentifier:
-      group: hco.kubevirt.io
-      name: kubevirt-hyperconverged
-      namespace: openshift-cnv
-      resource: hyperconvergeds
+      group: policy.open-cluster-management.io
+      name: kubevirt-hyperconverged-operator
+      namespace: open-cluster-management-policies
+      resource: operatorpolicies
     updateStrategy:
       type: CreateOnly
   workload:
@@ -123,62 +130,6 @@ spec:
           name: kubevirt-hyperconverged
           namespace: openshift-cnv
         upgradeApproval: Automatic
-    - apiVersion: hco.kubevirt.io/v1
-      kind: HyperConverged
-      metadata:
-        name: kubevirt-hyperconverged
-        namespace: openshift-cnv
-        annotations:
-          deployOVS: "false"
-      spec:
-        deployment:
-          applicationAwareConfig:
-            enable: false
-            vmiCalcConfigName: DedicatedVirtualResources
-          deployVmConsoleProxy: false
-          uninstallStrategy: BlockUninstallIfWorkloadsExist
-        security:
-          certConfig:
-            ca:
-              duration: 48h0m0s
-              renewBefore: 24h0m0s
-            server:
-              duration: 24h0m0s
-              renewBefore: 12h0m0s
-        virtualization:
-          virtualMachineOptions:
-            disableFreePageReporting: false
-            disableSerialConsoleLog: true
-          higherWorkloadDensity:
-            memoryOvercommitPercentage: 100
-          liveMigrationConfig:
-            allowAutoConverge: false
-            allowPostCopy: false
-            completionTimeoutPerGiB: 800
-            parallelMigrationsPerCluster: 5
-            parallelOutboundMigrationsPerNode: 2
-            progressTimeout: 150
-          workloadUpdateStrategy:
-            batchEvictionInterval: 1m0s
-            batchEvictionSize: 10
-            workloadUpdateMethods:
-            - LiveMigrate
-          vmiCPUAllocationRatio: 10
-        featureGates:
-        - name: decentralizedLiveMigration
-          state: Enabled
-        - name: downwardMetrics
-          state: Disabled
-        - name: disableMDevConfiguration
-          state: Disabled
-        - name: deployKubeSecondaryDNS
-          state: Disabled
-        - name: alignCPUs
-          state: Disabled
-        - name: persistentReservation
-          state: Disabled
-        workloadSources:
-          enableCommonBootImageImport: true
 EOF
   echo "Applied ManifestWork for cluster: ${cluster}"
 

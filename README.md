@@ -27,7 +27,7 @@ This repository also contains two addons for OCM that enable container native vi
 **Quick summary:**
 
 - **MTV Addon:** Installs the Migration Toolkit for Virtualization operator in the `openshift-mtv` namespace on the hub, enabling VM migration features. It uses the `release-v5.0` channel and enables UI plugin, validation, and volume populator features.
-- **CNV Addon:** Installs the KubeVirt Hyperconverged operator in the `openshift-cnv` namespace, providing virtualization capabilities. It configures optimized HyperConverged settings and uses OperatorPolicy for lifecycle management.
+- **CNV Addon:** Installs the KubeVirt Hyperconverged operator in the `openshift-cnv` namespace with OperatorPolicy. A dependent hub Policy applies the optimized HyperConverged settings after the operator reports `Compliant`.
 
 Both addons require ACM and the Policy addon. The CNV Addon targets clusters labeled with `acm/cnv-operator-install: "true"`.
 
@@ -206,8 +206,14 @@ chmod +x update_cleanup.sh
 The script performs the following:
 
 1. Deletes the stale ACM 2.15 resources: `ClusterManagementAddOn` and `AddOnTemplate` named `kubevirt-hyperconverged-operator`
-2. Reads the `installer.namespace` label from the existing `ClusterManagementAddOn kubevirt-hyperconverged` and re-applies it with the correct `installStrategy.placements.namespace`
-3. For each managed cluster labeled `acm/cnv-operator-install: "true"`, re-applies the `ManifestWork` named `addon-kubevirt-hyperconverged-deploy-0` with all five resources in the correct order: `Role` and `RoleBindings` first, followed by `OperatorPolicy` and `HyperConverged`. This ensures `klusterlet-work-sa` has the required RBAC permissions before the `OperatorPolicy` is applied
+2. Reads the `installer.namespace` label from the existing `ClusterManagementAddOn kubevirt-hyperconverged`, then applies the updated CNV AddOnTemplate and dependent hub Policy and re-applies the ClusterManagementAddOn with the correct `installStrategy.placements.namespace`
+3. For each managed cluster labeled `acm/cnv-operator-install: "true"`, re-applies the `ManifestWork` named `addon-kubevirt-hyperconverged-deploy-0` with the `Role`, `RoleBindings`, and OperatorPolicy. HyperConverged is managed separately by the dependent hub Policy after the OperatorPolicy reports `Compliant`.
+
+### CNV addon HyperConverged / webhook race
+
+Older CNV addon manifests delivered the HyperConverged custom resource in the same ManifestWork as the HCO OperatorPolicy. On slower managed clusters, HyperConverged could be validated before `hco-webhook-service` was ready and leave OLM in a failed state. The updated addon removes HyperConverged from the ManifestWork and applies it through a hub ConfigurationPolicy after the OperatorPolicy is Compliant.
+
+For clusters stuck from an earlier install, follow the [CNV HyperConverged recovery runbook](docs/CNV_HYPERCONVERGED_RECOVERY.md).
 
 ## Contributing
 

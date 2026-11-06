@@ -14,13 +14,6 @@ spec:
   agentSpec:
     manifestConfigs:
       - resourceIdentifier:
-          group: hco.kubevirt.io
-          resource: hyperconvergeds
-          name: kubevirt-hyperconverged
-          namespace: openshift-cnv
-        updateStrategy:
-          type: CreateOnly
-      - resourceIdentifier:
           group: policy.open-cluster-management.io
           resource: operatorpolicies
           name: kubevirt-hyperconverged-operator
@@ -29,49 +22,6 @@ spec:
           type: CreateOnly
     workload:
       manifests:
-        - apiVersion: hco.kubevirt.io/v1
-          kind: HyperConverged
-          metadata:
-            name: kubevirt-hyperconverged
-            namespace: openshift-cnv
-            annotations:
-              deployOVS: 'false'
-          spec:
-            deployment:
-              applicationAwareConfig:
-                enable: false
-                vmiCalcConfigName: DedicatedVirtualResources
-              deployVmConsoleProxy: false
-              uninstallStrategy: BlockUninstallIfWorkloadsExist
-            security:
-              certConfig:
-                ca:
-                  duration: 48h0m0s
-                  renewBefore: 24h0m0s
-                server:
-                  duration: 24h0m0s
-                  renewBefore: 12h0m0s
-            virtualization:
-              virtualMachineOptions:
-                disableFreePageReporting: false
-                disableSerialConsoleLog: true
-              higherWorkloadDensity:
-                memoryOvercommitPercentage: 100
-              liveMigrationConfig:
-                allowAutoConverge: false
-                allowPostCopy: false
-                completionTimeoutPerGiB: 800
-                parallelMigrationsPerCluster: 5
-                parallelOutboundMigrationsPerNode: 2
-                progressTimeout: 150
-              workloadUpdateStrategy:
-                batchEvictionInterval: 1m0s
-                batchEvictionSize: 10
-                workloadUpdateMethods:
-                  - LiveMigrate
-              vmiCPUAllocationRatio: 10
-            workloadSources:
-              enableCommonBootImageImport: true
         - apiVersion: rbac.authorization.k8s.io/v1
           kind: Role
           metadata:

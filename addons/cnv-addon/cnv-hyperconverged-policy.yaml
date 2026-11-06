@@ -1,0 +1,74 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: kubevirt-hyperconverged
+  namespace: open-cluster-management-global-set
+  annotations:
+    policy.open-cluster-management.io/categories: CM Configuration Management
+    policy.open-cluster-management.io/controls: CM-2 Baseline Configuration
+    policy.open-cluster-management.io/standards: NIST SP 800-53
+    policy.open-cluster-management.io/description: Create HyperConverged after the HCO OperatorPolicy is compliant.
+spec:
+  dependencies:
+    - apiVersion: policy.open-cluster-management.io/v1beta1
+      kind: OperatorPolicy
+      name: kubevirt-hyperconverged-operator
+      namespace: open-cluster-management-policies
+      compliance: Compliant
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: kubevirt-hyperconverged
+        spec:
+          remediationAction: enforce
+          severity: low
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: hco.kubevirt.io/v1
+                kind: HyperConverged
+                metadata:
+                  name: kubevirt-hyperconverged
+                  namespace: openshift-cnv
+                  annotations:
+                    deployOVS: "false"
+                spec:
+                  virtualization:
+                    virtualMachineOptions:
+                      disableFreePageReporting: false
+                      disableSerialConsoleLog: true
+                    higherWorkloadDensity:
+                      memoryOvercommitPercentage: 100
+                    liveMigrationConfig:
+                      allowAutoConverge: false
+                      allowPostCopy: false
+                      completionTimeoutPerGiB: 800
+                      parallelMigrationsPerCluster: 5
+                      parallelOutboundMigrationsPerNode: 2
+                      progressTimeout: 150
+                    workloadUpdateStrategy:
+                      batchEvictionInterval: 1m0s
+                      batchEvictionSize: 10
+                      workloadUpdateMethods:
+                        - LiveMigrate
+                    vmiCPUAllocationRatio: 10
+                  security:
+                    certConfig:
+                      ca:
+                        duration: 48h0m0s
+                        renewBefore: 24h0m0s
+                      server:
+                        duration: 24h0m0s
+                        renewBefore: 12h0m0s
+                  deployment:
+                    applicationAwareConfig:
+                      allowApplicationAwareClusterResourceQuota: false
+                      enable: false
+                      vmiCalcConfigName: DedicatedVirtualResources
+                    deployVmConsoleProxy: false
+                    uninstallStrategy: BlockUninstallIfWorkloadsExist
+                  workloadSources:
+                    enableCommonBootImageImport: true
