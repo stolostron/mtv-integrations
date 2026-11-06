@@ -71,10 +71,12 @@ for cluster in $CLUSTERS; do
         jq -e '.spec.customizedVariables | any(.name == "HCO_TEMPLATE_START" and
           .value == "{{")' >/dev/null; then
         ready=true
+        break
       fi
-      break
     fi
-    sleep 5
+    if (( attempt < 60 )); then
+      sleep 5
+    fi
   done
   if [[ "$ready" != true ]]; then
     echo "The CNV addon on $cluster needs HCO_TEMPLATE_START={{ in its effective AddOnDeploymentConfig." >&2
