@@ -2,7 +2,7 @@
 
 This guide is for **operators and customers** running **Migration Toolkit for Virtualization (MTV)** with **live** migration between two **Azure** OpenShift clusters (for example ACM managed clusters). It uses KubeVirt **decentralized live migration** with the **Proxy** datapath and an OpenShift **Route** on the pod network. You do **not** need a shared L2 or Multus network between clusters.
 
-Background: [KubeVirt cross-cluster migration network](https://github.com/kubevirt/user-guide/blob/main/docs/compute/cross_cluster_migration_network.md).
+Background: [Decentralized live migration — KubeVirt user guide](https://kubevirt.io/user-guide/compute/decentralized_live_migration/).
 
 ## Overview
 
@@ -25,7 +25,9 @@ Repeat steps 1–3 on **every** cluster that participates in CCLM.
 
 - OpenShift Virtualization (**CNV**) **4.99+** on both spokes, **HyperConverged** **Available**
 - Pod **`virt-synchronization-controller`** running in **`openshift-cnv`**
-- MTV on the **hub** with **Provider** CRs for source and destination clusters
+- **MTV 2.10+** on the **hub** (MTV 2.9 and earlier treat OpenShift Virtualization migrations as **cold** even when the Plan is live)
+- On the **hub**, confirm the Forklift controller enables live migration for OpenShift Virtualization (for example **`feature_ocp_live_migration: "true"`** on **`ForkliftController`**) before running a live migration Plan
+- MTV **Provider** CRs for source and destination clusters
 - TCP **443** reachable from each spoke to the **other** spoke’s sync Route (Azure load balancer / firewall)
 - **`cluster-admin`** on each spoke
 
@@ -60,9 +62,22 @@ oc get kubevirt kubevirt-kubevirt-hyperconverged -n openshift-cnv \
 
 Merge patch example (adjust if your gate list already contains **`CrossClusterMigrationProxy`**):
 
+If **`spec.configuration.migrations.crossClusterNetwork`** or **`spec.configuration.migrations.network`** is already set, traffic is bound to that dedicated migration network instead of the pod network — the OpenShift **Route** in Step 2 will not reach the sync listener. **Do not** use this Proxy + Route flow until both fields are unset (remove them from **HyperConverged** / **KubeVirt** if a prior administrator configured a Multus migration network).
+
 ```bash
 KV=kubevirt-kubevirt-hyperconverged
 NS=openshift-cnv
+
+EXISTING_CCN=$(oc get kubevirt "$KV" -n "$NS" -o json | \
+  jq -r '.spec.configuration.migrations.crossClusterNetwork // empty')
+EXISTING_NET=$(oc get kubevirt "$KV" -n "$NS" -o json | \
+  jq -r '.spec.configuration.migrations.network // empty')
+if [[ -n "$EXISTING_CCN" ]] || [[ -n "$EXISTING_NET" ]]; then
+  echo "ERROR: crossClusterNetwork or migrations.network is set; unset both before Proxy + Route setup." >&2
+  echo "  crossClusterNetwork=${EXISTING_CCN:-<empty>}"
+  echo "  migrations.network=${EXISTING_NET:-<empty>}"
+  exit 1
+fi
 
 GATES=$(oc get kubevirt "$KV" -n "$NS" -o json | \
   jq '[.spec.configuration.developerConfiguration.featureGates[]?, "CrossClusterMigrationProxy"] | unique')
@@ -155,8 +170,10 @@ spec:
 
 Save as a file and apply:
 
+From the **repository root** (paths below assume that working directory):
+
 ```bash
-oc apply -f synchronization-endpoint.yaml
+oc apply -f docs/examples/cross-cluster-sync-proxy.yaml
 ```
 
 Verify the Route:
@@ -185,12 +202,16 @@ endpoint=SynchronizationEndpointFound
 
 If `endpoint` is not `SynchronizationEndpointFound`, check Route/Service labels (`kubevirt.io/synchronization-endpoint=true`) and Route `targetPort` (`grpc`).
 
-From the **peer** cluster, confirm TLS reaches the sync controller (certificate CN should include **`virt-synchronization-controller`**):
+From a **pod on the peer spoke** (not your workstation), confirm TLS reaches the peer sync Route (certificate validation should show the sync service identity). **`oc login`** only configures your kubeconfig; it does **not** run the check on the cluster. On the **peer** cluster, run a short-lived pod with `curl`, for example:
 
 ```bash
-openssl s_client -connect virt-synchronization-endpoint-openshift-cnv.apps.<peer-cluster>:443 \
-  -servername virt-synchronization-endpoint-openshift-cnv.apps.<peer-cluster> </dev/null 2>&1 | head -15
+PEER_ROUTE_HOST=virt-synchronization-endpoint-openshift-cnv.apps.<peer-cluster>
+
+oc run tls-check --rm -i --restart=Never --image=registry.redhat.io/ubi9/ubi-minimal:latest -n default -- \
+  curl -vk "https://${PEER_ROUTE_HOST}" 2>&1 | head -20
 ```
+
+Replace **`<peer-cluster>`** and adjust **`-n default`** if your namespace policy differs. For **`openssl s_client`**, use an image that includes OpenSSL instead of `ubi-minimal`.
 
 ---
 
@@ -326,7 +347,7 @@ For some **live** plans with **RWX** root disks, MTV **PrepareTarget** fails unl
         volumeMode: Filesystem
 ```
 
-(Full manifest: **`examples/mtv-storagemap-cclm.yaml`**. Simple manifest: **`examples/mtv-storagemap-cclm-simple.yaml`**.)
+(Full manifest: **`docs/examples/mtv-storagemap-cclm.yaml`**. Simple manifest: **`docs/examples/mtv-storagemap-cclm-simple.yaml`**.)
 
 Adjust **`metadata.name`** and provider **`cnv-1` / `cnv-2`** to match your **Provider** CR names.
 
@@ -381,12 +402,12 @@ Copy-paste starting points (edit names for your environment):
 
 | File | Content |
 |------|---------|
-| `cross-cluster-sync-proxy.yaml` | Service + Route (Step 2) |
-| `examples/cclm-vm-rwx-azurefile.yaml` | DataVolume + VirtualMachine (Step 4) |
-| `examples/mtv-storagemap-cclm-simple.yaml` | StorageMap — **azurefile-csi** + **managed-csi** (class only) |
-| `examples/mtv-storagemap-cclm.yaml` | StorageMap with **`accessMode`** / **`volumeMode`** if PrepareTarget requires it |
+| [`docs/examples/cross-cluster-sync-proxy.yaml`](examples/cross-cluster-sync-proxy.yaml) | Service + Route (Step 2) |
+| [`docs/examples/cclm-vm-rwx-azurefile.yaml`](examples/cclm-vm-rwx-azurefile.yaml) | DataVolume + VirtualMachine (Step 4) |
+| [`docs/examples/mtv-storagemap-cclm-simple.yaml`](examples/mtv-storagemap-cclm-simple.yaml) | StorageMap — **azurefile-csi** + **managed-csi** (class only) |
+| [`docs/examples/mtv-storagemap-cclm.yaml`](examples/mtv-storagemap-cclm.yaml) | StorageMap with **`accessMode`** / **`volumeMode`** if PrepareTarget requires it |
 
 ## External links
 
-- [Cross-cluster migration network](https://github.com/kubevirt/user-guide/blob/main/docs/compute/cross_cluster_migration_network.md)
+- [Decentralized live migration](https://kubevirt.io/user-guide/compute/decentralized_live_migration/) (KubeVirt user guide)
 - [Decentralized live migration — KubeVirt CA](https://github.com/kubevirt/user-guide/blob/main/docs/compute/decentralized_live_migration.md#configuring-kubevirt-ca-with-cross-cluster-live-migration)

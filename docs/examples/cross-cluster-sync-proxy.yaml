@@ -1,0 +1,36 @@
+# Service + Route for CCLM Proxy datapath (Step 2 of docs/azure-cclm-proxy-setup.md).
+# Apply in openshift-cnv on each spoke.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: virt-synchronization-controller
+  namespace: openshift-cnv
+  labels:
+    kubevirt.io/synchronization-endpoint: "true"
+spec:
+  selector:
+    kubevirt.io: virt-synchronization-controller
+  ports:
+    - name: grpc
+      port: 9185
+      protocol: TCP
+      targetPort: sync
+  type: ClusterIP
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: virt-synchronization-endpoint
+  namespace: openshift-cnv
+  labels:
+    kubevirt.io/synchronization-endpoint: "true"
+spec:
+  to:
+    kind: Service
+    name: virt-synchronization-controller
+  port:
+    targetPort: grpc
+  tls:
+    termination: passthrough
+    insecureEdgeTerminationPolicy: None
