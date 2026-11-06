@@ -94,7 +94,7 @@ Hub **TLSSecurityProfile** (min TLS version, ciphers, TLS groups) applies to the
 
 Under `addons/`, the OCM AddOnTemplate manifests and supporting hub Policy resources:
 
-- **CNV Addon** (`cnv-addon/`) — installs the KubeVirt Hyperconverged operator on clusters labeled `acm/cnv-operator-install: "true"` with OperatorPolicy. A dependent hub Policy applies the HyperConverged custom resource only after the OperatorPolicy reports `Compliant`.
+- **CNV Addon** (`cnv-addon/`) — installs the KubeVirt Hyperconverged operator on clusters labeled `acm/cnv-operator-install: "true"` with OperatorPolicy. A dependent hub Policy creates a missing HyperConverged resource only after the OperatorPolicy reports `Compliant` and `hco-webhook-service` has a ready EndpointSlice address.
 - **MTV Addon** (`mtv-addon/`) — installs the MTV operator in `openshift-mtv` on the hub. Enables UI plugin, validation, and volume populator features.
 
 Both require ACM and the Policy addon. They are applied directly with `oc apply -f`, not managed by the Go controller.

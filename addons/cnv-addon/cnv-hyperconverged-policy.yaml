@@ -7,7 +7,7 @@ metadata:
     policy.open-cluster-management.io/categories: CM Configuration Management
     policy.open-cluster-management.io/controls: CM-2 Baseline Configuration
     policy.open-cluster-management.io/standards: NIST SP 800-53
-    policy.open-cluster-management.io/description: Create HyperConverged after the HCO OperatorPolicy is compliant, while preserving existing HyperConverged configuration on upgrade.
+    policy.open-cluster-management.io/description: Create HyperConverged after the HCO OperatorPolicy is compliant and the webhook has a ready endpoint, while preserving existing configuration on upgrade.
 spec:
   dependencies:
     - apiVersion: policy.open-cluster-management.io/v1beta1
@@ -36,6 +36,21 @@ spec:
                   name: kubevirt-hyperconverged
                   namespace: openshift-cnv
             {{ else }}
+            {{ $webhookReady := false }}
+            {{ range $slice := (lookup "discovery.k8s.io/v1" "EndpointSlice" "openshift-cnv" "").items }}
+            {{ with $slice.metadata.labels }}
+            {{ if eq (index . "kubernetes.io/service-name") "hco-webhook-service" }}
+            {{ range $endpoint := $slice.endpoints }}
+            {{ with $endpoint.conditions }}
+            {{ if .ready }}
+            {{ $webhookReady = true }}
+            {{ end }}
+            {{ end }}
+            {{ end }}
+            {{ end }}
+            {{ end }}
+            {{ end }}
+            {{ if $webhookReady }}
             - complianceType: musthave
               objectDefinition:
                 apiVersion: hco.kubevirt.io/v1
@@ -95,4 +110,7 @@ spec:
                       state: Disabled
                     - name: persistentReservation
                       state: Disabled
+            {{ else }}
+            []
+            {{ end }}
             {{ end }}

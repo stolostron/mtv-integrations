@@ -56,10 +56,10 @@ fi
 for cluster in ${CLUSTERS}; do
   echo "--- Processing cluster: ${cluster} ---"
 
-  # Keep the HyperConverged object identity-only and ReadOnly during the
-  # ownership handoff. The dependent hub Policy creates/configures it after
-  # the OperatorPolicy reports Compliant. ReadOnly also removes the old Work
-  # owner reference without overwriting existing cluster customization.
+  # Keep the HyperConverged object identity-only and ReadOnly so the Work does
+  # not create or change it. The dependent hub Policy creates a missing CR
+  # after the OperatorPolicy is Compliant and the webhook has a ready endpoint.
+  # ReadOnly does not remove an existing AppliedManifestWork owner reference.
   oc apply -f - <<EOF
 apiVersion: work.open-cluster-management.io/v1
 kind: ManifestWork

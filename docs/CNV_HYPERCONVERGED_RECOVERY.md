@@ -6,9 +6,9 @@ This runbook covers managed clusters where the older CNV addon applied the Hyper
 
 Update the hub first so the addon ManifestWork no longer creates or configures HyperConverged and the dependent hub Policy is installed. Apply the updated chart, the manifests under `addons/cnv-addon/`, or run `update_cleanup.sh` from the repository root.
 
-The hub Policy waits for the spoke OperatorPolicy `kubevirt-hyperconverged-operator` in `open-cluster-management-policies` to report `Compliant`. It creates HyperConverged through a ConfigurationPolicy when the resource is absent. The hub Policy does not define a second OperatorPolicy.
+The hub Policy waits for the spoke OperatorPolicy `kubevirt-hyperconverged-operator` in `open-cluster-management-policies` to report `Compliant`. When HyperConverged is absent, its ConfigurationPolicy also waits for a ready endpoint behind `hco-webhook-service` before creating the CR. The hub Policy does not define a second OperatorPolicy.
 
-On an upgrade, the updated addon retains an identity-only `ReadOnly` HyperConverged manifest while it selectively orphans the resource from the old ManifestWork. This lets the Work remove its owner reference without applying the old `CreateOnly` manifest or changing the CR. The hub Policy detects an existing resource and checks only its identity, preserving its spec and user customizations. If the resource is missing, the Policy creates it with the configured defaults after the OperatorPolicy is compliant.
+On an upgrade, the updated addon retains an identity-only `ReadOnly` HyperConverged manifest. It does not create or change an existing CR. The hub Policy detects an existing resource and checks only its identity, preserving its spec and user customizations. `ReadOnly` does not remove an old AppliedManifestWork owner reference; a separate migration must remove that reference before the Work can be safely deleted. If HyperConverged is missing, the Policy creates it with configured defaults after both readiness checks pass.
 
 ## Recover the managed cluster
 

@@ -158,10 +158,8 @@ func TestCNVHubPolicyWaitsForOperatorPolicyAndPreservesCreateOnly(t *testing.T) 
 	staticPolicy := loadManifest(t, staticPolicyPath, nil)
 	chartPolicy := loadManifest(t, chartPolicyPath, map[string]string{
 		"{{ .Values.global.namespace }}": hubPolicyNamespace,
-		"{{`{{ $existing := lookup \"hco.kubevirt.io/v1\" \"HyperConverged\" \"openshift-cnv\" \"kubevirt-hyperconverged\" }}`}}": "{{ $existing := lookup \"hco.kubevirt.io/v1\" \"HyperConverged\" \"openshift-cnv\" \"kubevirt-hyperconverged\" }}",
-		"{{`{{ if $existing }}`}}": "{{ if $existing }}",
-		"{{`{{ else }}`}}":         "{{ else }}",
-		"{{`{{ end }}`}}":          "{{ end }}",
+		"{{`{{":                          "{{",
+		"}}`}}":                          "}}",
 	})
 
 	if !reflect.DeepEqual(staticPolicy, chartPolicy) {
@@ -216,7 +214,11 @@ func TestCNVHubPolicyWaitsForOperatorPolicyAndPreservesCreateOnly(t *testing.T) 
 		t.Fatalf("expected ConfigurationPolicy object-templates-raw, got %T", configurationPolicySpec["object-templates-raw"])
 	}
 
-	existingObject := renderHyperConvergedTemplate(t, rawTemplates, true)
+	existingTemplates := renderHyperConvergedTemplate(t, rawTemplates, true, nil)
+	if len(existingTemplates) != 1 {
+		t.Fatalf("expected identity-only template for existing HyperConverged, got %d", len(existingTemplates))
+	}
+	existingObject := existingTemplates[0]
 	existingDefinition := nestedMap(t, existingObject, "objectDefinition")
 	existingMetadata := nestedMap(t, existingDefinition, "metadata")
 	if existingDefinition["kind"] != "HyperConverged" || existingMetadata["name"] != "kubevirt-hyperconverged" || existingMetadata["namespace"] != "openshift-cnv" {
@@ -226,7 +228,33 @@ func TestCNVHubPolicyWaitsForOperatorPolicyAndPreservesCreateOnly(t *testing.T) 
 		t.Fatalf("existing HyperConverged must remain create-only; expected identity-only policy object, got spec %#v (error %v)", existingDefinition["spec"], err)
 	}
 
-	newObject := renderHyperConvergedTemplate(t, rawTemplates, false)
+	for _, tc := range []struct {
+		name   string
+		slices []map[string]interface{}
+	}{
+		{name: "no webhook endpoints"},
+		{name: "unready webhook endpoint", slices: []map[string]interface{}{endpointSlice("hco-webhook-service", false)}},
+		{name: "ready endpoint for another service", slices: []map[string]interface{}{endpointSlice("other-service", true)}},
+		{name: "unlabeled endpoint slice", slices: []map[string]interface{}{{"metadata": map[string]interface{}{}, "endpoints": []interface{}{}}}},
+		{name: "endpoint without readiness condition", slices: []map[string]interface{}{{
+			"metadata":  map[string]interface{}{"labels": map[string]interface{}{"kubernetes.io/service-name": "hco-webhook-service"}},
+			"endpoints": []interface{}{map[string]interface{}{}},
+		}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if objects := renderHyperConvergedTemplate(t, rawTemplates, false, tc.slices); len(objects) != 0 {
+				t.Fatalf("HyperConverged must not be created before the webhook has a ready endpoint, got %#v", objects)
+			}
+		})
+	}
+
+	newTemplates := renderHyperConvergedTemplate(t, rawTemplates, false, []map[string]interface{}{
+		endpointSlice("hco-webhook-service", true),
+	})
+	if len(newTemplates) != 1 {
+		t.Fatalf("expected full HyperConverged template when webhook is ready, got %d", len(newTemplates))
+	}
+	newObject := newTemplates[0]
 	hyperConverged := nestedMap(t, newObject, "objectDefinition")
 	hyperConvergedMetadata := nestedMap(t, hyperConverged, "metadata")
 	if hyperConverged["kind"] != "HyperConverged" || hyperConvergedMetadata["name"] != "kubevirt-hyperconverged" || hyperConvergedMetadata["namespace"] != "openshift-cnv" {
@@ -262,18 +290,39 @@ func TestCNVHubPolicyWaitsForOperatorPolicyAndPreservesCreateOnly(t *testing.T) 
 	}
 }
 
-func renderHyperConvergedTemplate(t *testing.T, rawTemplates string, existing bool) map[string]interface{} {
+func endpointSlice(serviceName string, ready bool) map[string]interface{} {
+	return map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"labels": map[string]interface{}{"kubernetes.io/service-name": serviceName},
+		},
+		"endpoints": []interface{}{
+			map[string]interface{}{"conditions": map[string]interface{}{"ready": ready}},
+		},
+	}
+}
+
+func renderHyperConvergedTemplate(t *testing.T, rawTemplates string, existing bool, slices []map[string]interface{}) []map[string]interface{} {
 	t.Helper()
 
 	lookup := func(apiVersion, kind, namespace, name string) interface{} {
-		if apiVersion != "hco.kubevirt.io/v1" || kind != "HyperConverged" || namespace != "openshift-cnv" || name != "kubevirt-hyperconverged" {
-			t.Errorf("unexpected HyperConverged lookup: %s %s %s/%s", apiVersion, kind, namespace, name)
-		}
-		if !existing {
+		switch kind {
+		case "HyperConverged":
+			if apiVersion != "hco.kubevirt.io/v1" || namespace != "openshift-cnv" || name != "kubevirt-hyperconverged" {
+				t.Errorf("unexpected HyperConverged lookup: %s %s %s/%s", apiVersion, kind, namespace, name)
+			}
+			if existing {
+				return map[string]interface{}{"kind": "HyperConverged"}
+			}
+			return ""
+		case "EndpointSlice":
+			if apiVersion != "discovery.k8s.io/v1" || namespace != "openshift-cnv" || name != "" {
+				t.Errorf("unexpected EndpointSlice lookup: %s %s %s/%s", apiVersion, kind, namespace, name)
+			}
+			return map[string]interface{}{"items": slices}
+		default:
+			t.Errorf("unexpected lookup: %s %s %s/%s", apiVersion, kind, namespace, name)
 			return ""
 		}
-
-		return map[string]interface{}{"kind": "HyperConverged"}
 	}
 
 	parsed, err := template.New("hyperconverged").Funcs(template.FuncMap{"lookup": lookup}).Parse(rawTemplates)
@@ -290,11 +339,7 @@ func renderHyperConvergedTemplate(t *testing.T, rawTemplates string, existing bo
 	if err := yaml.Unmarshal(rendered.Bytes(), &objects); err != nil {
 		t.Fatalf("parse rendered HyperConverged policy objects: %v\n%s", err, rendered.String())
 	}
-	if len(objects) != 1 {
-		t.Fatalf("expected one rendered HyperConverged object template, got %d", len(objects))
-	}
-
-	return objects[0]
+	return objects
 }
 
 func assertSelectiveOrphanRule(t *testing.T, object map[string]interface{}, fields ...string) {
