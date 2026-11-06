@@ -213,8 +213,6 @@ The script performs the following:
 
 Older CNV addon manifests delivered the HyperConverged custom resource in the same ManifestWork as the HCO OperatorPolicy. On slower managed clusters, HyperConverged could be validated before `hco-webhook-service` was ready and leave OLM in a failed state. The updated addon keeps only an identity-only `ReadOnly` entry so the ManifestWork cannot create or change HCO; a managed ConfigurationPolicy creates it after the OperatorPolicy is `Compliant`. The entry keeps an existing HCO tracked during ManifestWork updates. OperatorPolicy compliance does not explicitly confirm ready webhook endpoints, so a webhook timing gap remains possible.
 
-For clusters stuck from an earlier install, follow the [CNV HyperConverged recovery runbook](docs/CNV_HYPERCONVERGED_RECOVERY.md).
-
 ## Contributing
 
 Please read our [Contributing Guidelines](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.

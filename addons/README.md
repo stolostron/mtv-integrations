@@ -89,8 +89,6 @@ The AddOnTemplate renderer normally consumes Go template delimiters before a Con
 
 The `ReadOnly` entry prevents an HCO already owned by the ManifestWork from being deleted just because the ManifestWork template changes. It does not remove an old `AppliedManifestWork` owner reference. Deleting the entire ManifestWork can still delete an HCO with that owner reference; removing the `ReadOnly` entry later requires a separate ownership migration.
 
-For clusters that failed during an earlier install, see [Recovering a failed CNV HyperConverged install](../docs/CNV_HYPERCONVERGED_RECOVERY.md). The runbook explains how to recover a failed HCO CSV and verify the policy that manages HyperConverged.
-
 
 ## ClusterRole Permissions
 
