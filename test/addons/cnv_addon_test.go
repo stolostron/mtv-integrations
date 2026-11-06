@@ -111,11 +111,14 @@ func TestCNVAddonTemplatesUseReadOnlyHyperConvergedHandoff(t *testing.T) {
 				if manifest["kind"] == "HyperConverged" {
 					hyperConvergedManifests++
 					metadata := nestedMap(t, manifest, "metadata")
-					if manifest["apiVersion"] != "hco.kubevirt.io/v1" || metadata["name"] != "kubevirt-hyperconverged" || metadata["namespace"] != "openshift-cnv" {
+					if manifest["apiVersion"] != "hco.kubevirt.io/v1" ||
+						metadata["name"] != "kubevirt-hyperconverged" ||
+						metadata["namespace"] != "openshift-cnv" {
 						t.Fatalf("unexpected HyperConverged handoff identity: %#v", manifest)
 					}
 					if _, found, err := unstructured.NestedMap(manifest, "spec"); err != nil || found {
-						t.Fatalf("HyperConverged handoff manifest must not configure the CR, got spec %#v (error %v)", manifest["spec"], err)
+						t.Fatalf("HyperConverged handoff manifest must not configure the CR, got spec %#v (error %v)",
+							manifest["spec"], err)
 					}
 				}
 				if manifest["kind"] == "OperatorPolicy" {
@@ -160,9 +163,12 @@ func TestCNVAddonTemplatesUseReadOnlyHyperConvergedHandoff(t *testing.T) {
 				strategy := nestedMap(t, config, "updateStrategy")
 				switch identifier["group"] {
 				case "hco.kubevirt.io":
-					readOnlyHCO = identifier["resource"] == "hyperconvergeds" && identifier["name"] == "kubevirt-hyperconverged" && identifier["namespace"] == "openshift-cnv" && strategy["type"] == "ReadOnly"
+					readOnlyHCO = identifier["resource"] == "hyperconvergeds" &&
+						identifier["name"] == "kubevirt-hyperconverged" &&
+						identifier["namespace"] == "openshift-cnv" && strategy["type"] == "ReadOnly"
 				case "policy.open-cluster-management.io":
-					createOnlyOperatorPolicy = identifier["resource"] == "operatorpolicies" && identifier["name"] == "kubevirt-hyperconverged-operator" && strategy["type"] == "CreateOnly"
+					createOnlyOperatorPolicy = identifier["resource"] == "operatorpolicies" &&
+						identifier["name"] == "kubevirt-hyperconverged-operator" && strategy["type"] == "CreateOnly"
 				}
 			}
 			if !readOnlyHCO || !createOnlyOperatorPolicy {
@@ -182,7 +188,8 @@ func TestCNVAddonConfigurationMatchesHelmChart(t *testing.T) {
 	}
 }
 
-func TestCNVHubPolicyWaitsForOperatorPolicyAndPreservesCreateOnly(t *testing.T) {
+func loadCNVHubRawTemplate(t *testing.T) string {
+	t.Helper()
 	staticPolicyPath := "addons/cnv-addon/cnv-hyperconverged-policy.yaml"
 	chartPolicyPath := "charts/templates/cnv-hyperconverged-policy.yaml"
 	staticPolicy := loadManifest(t, staticPolicyPath, nil)
@@ -237,7 +244,8 @@ func TestCNVHubPolicyWaitsForOperatorPolicyAndPreservesCreateOnly(t *testing.T) 
 	}
 	configurationPolicySpec := nestedMap(t, definition, "spec")
 	if configurationPolicySpec["remediationAction"] != "enforce" {
-		t.Fatalf("expected ConfigurationPolicy to enforce HyperConverged, got %v", configurationPolicySpec["remediationAction"])
+		t.Fatalf("expected ConfigurationPolicy to enforce HyperConverged, got %v",
+			configurationPolicySpec["remediationAction"])
 	}
 	if nestedMap(t, configurationPolicySpec, "evaluationInterval")["compliant"] != "1m" {
 		t.Fatal("hub ConfigurationPolicy must reevaluate while waiting for addon configuration or webhook readiness")
@@ -246,6 +254,11 @@ func TestCNVHubPolicyWaitsForOperatorPolicyAndPreservesCreateOnly(t *testing.T) 
 	if !ok {
 		t.Fatalf("expected ConfigurationPolicy object-templates-raw, got %T", configurationPolicySpec["object-templates-raw"])
 	}
+	return rawTemplates
+}
+
+func TestCNVHubPolicyPreservesExistingHyperConverged(t *testing.T) {
+	rawTemplates := loadCNVHubRawTemplate(t)
 	addonConfiguration := addonConfigurationPolicy(t, loadManifest(t, "addons/cnv-addon/cnv-addon-template.yaml", nil))
 
 	existingTemplates := renderHyperConvergedTemplate(t, rawTemplates, true, nil, addonConfiguration)
@@ -255,12 +268,21 @@ func TestCNVHubPolicyWaitsForOperatorPolicyAndPreservesCreateOnly(t *testing.T) 
 	existingObject := existingTemplates[0]
 	existingDefinition := nestedMap(t, existingObject, "objectDefinition")
 	existingMetadata := nestedMap(t, existingDefinition, "metadata")
-	if existingDefinition["kind"] != "HyperConverged" || existingMetadata["name"] != "kubevirt-hyperconverged" || existingMetadata["namespace"] != "openshift-cnv" {
+	if existingDefinition["kind"] != "HyperConverged" ||
+		existingMetadata["name"] != "kubevirt-hyperconverged" ||
+		existingMetadata["namespace"] != "openshift-cnv" {
 		t.Fatalf("unexpected existing HyperConverged identity: %#v", existingDefinition)
 	}
 	if _, found, err := unstructured.NestedMap(existingDefinition, "spec"); err != nil || found {
-		t.Fatalf("existing HyperConverged must remain create-only; expected identity-only policy object, got spec %#v (error %v)", existingDefinition["spec"], err)
+		t.Fatalf("existing HyperConverged must remain create-only; got spec %#v (error %v)",
+			existingDefinition["spec"], err)
 	}
+
+}
+
+func TestCNVHubPolicyWaitsForWebhook(t *testing.T) {
+	rawTemplates := loadCNVHubRawTemplate(t)
+	addonConfiguration := addonConfigurationPolicy(t, loadManifest(t, "addons/cnv-addon/cnv-addon-template.yaml", nil))
 
 	for _, tc := range []struct {
 		name   string
@@ -269,18 +291,29 @@ func TestCNVHubPolicyWaitsForOperatorPolicyAndPreservesCreateOnly(t *testing.T) 
 		{name: "no webhook endpoints"},
 		{name: "unready webhook endpoint", slices: []map[string]interface{}{endpointSlice("hco-webhook-service", false)}},
 		{name: "ready endpoint for another service", slices: []map[string]interface{}{endpointSlice("other-service", true)}},
-		{name: "unlabeled endpoint slice", slices: []map[string]interface{}{{"metadata": map[string]interface{}{}, "endpoints": []interface{}{}}}},
+		{name: "unlabeled endpoint slice", slices: []map[string]interface{}{{
+			"metadata": map[string]interface{}{}, "endpoints": []interface{}{},
+		}}},
 		{name: "endpoint without readiness condition", slices: []map[string]interface{}{{
-			"metadata":  map[string]interface{}{"labels": map[string]interface{}{"kubernetes.io/service-name": "hco-webhook-service"}},
+			"metadata": map[string]interface{}{
+				"labels": map[string]interface{}{"kubernetes.io/service-name": "hco-webhook-service"},
+			},
 			"endpoints": []interface{}{map[string]interface{}{}},
 		}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if objects := renderHyperConvergedTemplate(t, rawTemplates, false, tc.slices, addonConfiguration); len(objects) != 0 {
+			objects := renderHyperConvergedTemplate(t, rawTemplates, false, tc.slices, addonConfiguration)
+			if len(objects) != 0 {
 				t.Fatalf("HyperConverged must not be created before the webhook has a ready endpoint, got %#v", objects)
 			}
 		})
 	}
+
+}
+
+func TestCNVHubPolicyUsesAddonConfiguration(t *testing.T) {
+	rawTemplates := loadCNVHubRawTemplate(t)
+	addonConfiguration := addonConfigurationPolicy(t, loadManifest(t, "addons/cnv-addon/cnv-addon-template.yaml", nil))
 
 	readySlices := []map[string]interface{}{
 		endpointSlice("hco-webhook-service", true),
@@ -295,17 +328,23 @@ func TestCNVHubPolicyWaitsForOperatorPolicyAndPreservesCreateOnly(t *testing.T) 
 	newObject := newTemplates[0]
 	hyperConverged := nestedMap(t, newObject, "objectDefinition")
 	hyperConvergedMetadata := nestedMap(t, hyperConverged, "metadata")
-	if hyperConverged["kind"] != "HyperConverged" || hyperConvergedMetadata["name"] != "kubevirt-hyperconverged" || hyperConvergedMetadata["namespace"] != "openshift-cnv" {
+	if hyperConverged["kind"] != "HyperConverged" ||
+		hyperConvergedMetadata["name"] != "kubevirt-hyperconverged" ||
+		hyperConvergedMetadata["namespace"] != "openshift-cnv" {
 		t.Fatalf("unexpected new HyperConverged identity: %#v", hyperConverged)
 	}
-	configuredObject := nestedMap(t, nestedSlice(t, addonConfiguration, "spec", "object-templates")[0].(map[string]interface{}), "objectDefinition")
+	configuredTemplates := nestedSlice(t, addonConfiguration, "spec", "object-templates")
+	configuredObject := nestedMap(t, configuredTemplates[0].(map[string]interface{}), "objectDefinition")
 	if !reflect.DeepEqual(hyperConverged, configuredObject) {
-		t.Fatalf("hub Policy must use the AddOnTemplate ConfigurationPolicy object; got %#v, want %#v", hyperConverged, configuredObject)
+		t.Fatalf("hub Policy must use the AddOnTemplate ConfigurationPolicy object; got %#v, want %#v",
+			hyperConverged, configuredObject)
 	}
 	customConfiguration := addonConfigurationPolicy(t, loadManifest(t, "addons/cnv-addon/cnv-addon-template.yaml", nil))
-	customTemplate := customConfiguration["spec"].(map[string]interface{})["object-templates"].([]interface{})[0].(map[string]interface{})
+	customSpec := customConfiguration["spec"].(map[string]interface{})
+	customTemplate := customSpec["object-templates"].([]interface{})[0].(map[string]interface{})
 	customObject := customTemplate["objectDefinition"].(map[string]interface{})
-	customObject["spec"].(map[string]interface{})["virtualization"].(map[string]interface{})["vmiCPUAllocationRatio"] = float64(12)
+	virtualization := customObject["spec"].(map[string]interface{})["virtualization"].(map[string]interface{})
+	virtualization["vmiCPUAllocationRatio"] = float64(12)
 	customRendered := renderHyperConvergedTemplate(t, rawTemplates, false, readySlices, customConfiguration)
 	if len(customRendered) != 1 || !reflect.DeepEqual(customRendered[0]["objectDefinition"], customObject) {
 		t.Fatalf("customized addon ConfigurationPolicy was not used: %#v", customRendered)
@@ -363,7 +402,13 @@ func addonConfigurationPolicy(t *testing.T, addon map[string]interface{}) map[st
 	return nil
 }
 
-func renderHyperConvergedTemplate(t *testing.T, rawTemplates string, existing bool, slices []map[string]interface{}, addonConfiguration map[string]interface{}) []map[string]interface{} {
+func renderHyperConvergedTemplate(
+	t *testing.T,
+	rawTemplates string,
+	existing bool,
+	slices []map[string]interface{},
+	addonConfiguration map[string]interface{},
+) []map[string]interface{} {
 	t.Helper()
 
 	lookup := func(apiVersion, kind, namespace, name string) interface{} {
@@ -382,7 +427,8 @@ func renderHyperConvergedTemplate(t *testing.T, rawTemplates string, existing bo
 			}
 			return map[string]interface{}{"items": slices}
 		case "ConfigurationPolicy":
-			if apiVersion != "policy.open-cluster-management.io/v1" || namespace != operatorPolicyNamespace || name != "kubevirt-hyperconverged-config" {
+			if apiVersion != "policy.open-cluster-management.io/v1" ||
+				namespace != operatorPolicyNamespace || name != "kubevirt-hyperconverged-config" {
 				t.Errorf("unexpected addon ConfigurationPolicy lookup: %s %s %s/%s", apiVersion, kind, namespace, name)
 			}
 			if addonConfiguration == nil {
@@ -399,7 +445,10 @@ func renderHyperConvergedTemplate(t *testing.T, rawTemplates string, existing bo
 		data, err := json.Marshal(value)
 		return string(data), err
 	}
-	parsed, err := template.New("hyperconverged").Funcs(template.FuncMap{"lookup": lookup, "toJson": toJSON}).Parse(rawTemplates)
+	parsed, err := template.New("hyperconverged").Funcs(template.FuncMap{
+		"lookup": lookup,
+		"toJson": toJSON,
+	}).Parse(rawTemplates)
 	if err != nil {
 		t.Fatalf("parse HyperConverged policy template: %v", err)
 	}
@@ -428,7 +477,9 @@ func assertSelectiveOrphanRule(t *testing.T, object map[string]interface{}, fiel
 		t.Fatalf("expected one selectively orphaned resource, got %d", len(rules))
 	}
 	rule, ok := rules[0].(map[string]interface{})
-	if !ok || rule["group"] != "hco.kubevirt.io" || rule["resource"] != "hyperconvergeds" || rule["namespace"] != "openshift-cnv" || rule["name"] != "kubevirt-hyperconverged" {
+	if !ok || rule["group"] != "hco.kubevirt.io" ||
+		rule["resource"] != "hyperconvergeds" || rule["namespace"] != "openshift-cnv" ||
+		rule["name"] != "kubevirt-hyperconverged" {
 		t.Fatalf("unexpected selectively orphaned resource: %#v", rules[0])
 	}
 }
@@ -446,7 +497,8 @@ func TestCNVHubPolicyBindingTargetsAddonPlacement(t *testing.T) {
 	}
 	spec := nestedMap(t, staticBinding, "spec")
 	placementRef := nestedMap(t, spec, "placementRef")
-	if placementRef["name"] != cnvPlacementName || placementRef["kind"] != "Placement" || placementRef["apiGroup"] != "cluster.open-cluster-management.io" {
+	if placementRef["name"] != cnvPlacementName || placementRef["kind"] != "Placement" ||
+		placementRef["apiGroup"] != "cluster.open-cluster-management.io" {
 		t.Fatalf("unexpected placement reference: %#v", placementRef)
 	}
 	subjects, ok := spec["subjects"].([]interface{})
@@ -465,7 +517,8 @@ func TestCleanupScriptUsesReadOnlyHyperConvergedHandoff(t *testing.T) {
 		t.Fatalf("read update_cleanup.sh: %v", err)
 	}
 	scriptText := string(script)
-	if !strings.Contains(scriptText, "cnv-hyperconverged-policy.yaml") || !strings.Contains(scriptText, "cnv-hyperconverged-policy-binding.yaml") {
+	if !strings.Contains(scriptText, "cnv-hyperconverged-policy.yaml") ||
+		!strings.Contains(scriptText, "cnv-hyperconverged-policy-binding.yaml") {
 		t.Fatal("update_cleanup.sh must install the dependent hub Policy and PlacementBinding")
 	}
 
@@ -493,7 +546,9 @@ func TestCleanupScriptUsesReadOnlyHyperConvergedHandoff(t *testing.T) {
 		identifier := nestedMap(t, config, "resourceIdentifier")
 		strategy := nestedMap(t, config, "updateStrategy")
 		if identifier["group"] == "hco.kubevirt.io" {
-			readOnlyHCO = identifier["resource"] == "hyperconvergeds" && identifier["name"] == "kubevirt-hyperconverged" && identifier["namespace"] == "openshift-cnv" && strategy["type"] == "ReadOnly"
+			readOnlyHCO = identifier["resource"] == "hyperconvergeds" &&
+				identifier["name"] == "kubevirt-hyperconverged" &&
+				identifier["namespace"] == "openshift-cnv" && strategy["type"] == "ReadOnly"
 		}
 	}
 	if !readOnlyHCO {
@@ -516,7 +571,8 @@ func TestCleanupScriptUsesReadOnlyHyperConvergedHandoff(t *testing.T) {
 				t.Fatalf("unexpected HyperConverged handoff identity: %#v", manifest)
 			}
 			if _, found, err := unstructured.NestedMap(manifest, "spec"); err != nil || found {
-				t.Fatalf("HyperConverged handoff manifest must not configure the CR, got spec %#v (error %v)", manifest["spec"], err)
+				t.Fatalf("HyperConverged handoff manifest must not configure the CR, got spec %#v (error %v)",
+					manifest["spec"], err)
 			}
 		}
 		if manifest["kind"] == "ConfigurationPolicy" {
