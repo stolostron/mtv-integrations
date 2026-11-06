@@ -57,6 +57,10 @@ When you are done testing, scale them back to **1**. Restoring HCO may revert ma
 1. **`spec.featureGates` on `HyperConverged`** — keep **`decentralizedLiveMigration`** **Enabled** (default on supported CNV builds). See [HCO cluster configuration — Feature gates](https://github.com/kubevirt/hyperconverged-cluster-operator/blob/main/docs/cluster-configuration.md#featuregates).
 2. **`kubevirt.kubevirt.io/jsonpatch` annotation on `HyperConverged`** — merge **experimental KubeVirt fields** (such as **`CrossClusterMigrationProxy`** and **`decentralizedLiveMigrationDatapath: Proxy`**) into the operand CR so **HCO** re-applies them after each reconcile. Same document: [cluster configuration](https://github.com/kubevirt/hyperconverged-cluster-operator/blob/main/docs/cluster-configuration.md) (search for **jsonpatch**).
 
+If the annotation **already exists** (for example it configures **`allowPostCopy`** or other KubeVirt fields), **merge** the Proxy operations into the **existing** JSON array instead of replacing the whole annotation — otherwise unrelated settings can drop on the next reconcile. Check operation order and overlapping paths against the live **KubeVirt** spec.
+
+Before using the Step 2 Route, inspect the reconciled **KubeVirt** CR: **`spec.configuration.migrations.crossClusterNetwork`** and **`spec.configuration.migrations.network`** must be unset for this Proxy + Route flow. If either is set, remove it from **HyperConverged** (including any **`jsonpatch`** operation that sets it) while preserving unrelated patch operations, wait for reconciliation, and confirm both fields are empty.
+
 Example annotation (edit **only** if it matches your desired merge; duplicate **`add`** ops to **`featureGates/-`** can fail if the value already exists — use **`replace`** or adjust ops after inspecting the live **KubeVirt** spec):
 
 ```yaml
@@ -246,7 +250,7 @@ Only **`OK`** or **`FAIL`** is printed (no Route hostname in the output). **`cur
 
 Replace **`<peer-cluster>`** and adjust **`-n default`** if your namespace policy differs.
 
-**After Step 3** (peer CAs exchanged), verify the server certificate against the exchanged trust material — for example **`openssl s_client -connect "${PEER_ROUTE_HOST}:443" -servername "${PEER_ROUTE_HOST}" -CAfile peer-ca.pem`** from a pod on the peer spoke that has **`peer-ca.pem`**, or **`curl`** **without** **`-k`** if the pod’s trust store includes the peer CA. Do **not** treat the **`OK` / `FAIL`** reachability check above as proof of correct service identity or CA trust.
+**After Step 3** (peer CAs exchanged), verify the **peer CA chain** from a pod on the peer spoke that has **`peer-ca.pem`**, for example **`openssl s_client -connect "${PEER_ROUTE_HOST}:443" -servername "${PEER_ROUTE_HOST}" -verify_return_error -CAfile peer-ca.pem`**. The default sync serving certificate is aimed at **internal Service DNS** names, not the external **Route** hostname, so **`curl`** **without** **`-k`** may report a hostname mismatch even when CA exchange and Proxy connectivity are correct — do **not** treat that as a failure by itself. **`openssl s_client`** as shown does not assert hostname match; it focuses on chain validation with **`-verify_return_error`**. KubeVirt peers validate the exchanged CA and server cert for mTLS as documented in the user guide, not the Route SAN. Do **not** treat the **`OK` / `FAIL`** reachability check above as proof of correct CA trust.
 
 ---
 
@@ -433,7 +437,7 @@ If the hub reports **WaitForStateTransfer** or *check VMIM status*, run **`oc de
 
 ## Reference manifests in this repository
 
-Copy-paste starting points (edit names for your environment):
+Copy-paste starting points (edit names for your environment). Paths are **`docs/examples/...`** under the **repository root** (same layout as this doc’s branch).
 
 | File | Content |
 |------|---------|
