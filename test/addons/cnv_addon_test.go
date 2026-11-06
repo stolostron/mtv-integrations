@@ -197,6 +197,34 @@ func TestCNVHubPolicyWaitsForOperatorPolicyAndEnforcesHyperConverged(t *testing.
 	if hyperConverged["kind"] != "HyperConverged" || hyperConvergedMetadata["name"] != "kubevirt-hyperconverged" || hyperConvergedMetadata["namespace"] != "openshift-cnv" {
 		t.Fatalf("unexpected managed object identity: %#v", hyperConverged)
 	}
+
+	wantFeatureGates := map[string]string{
+		"decentralizedLiveMigration": "Enabled",
+		"downwardMetrics":            "Disabled",
+		"disableMDevConfiguration":   "Disabled",
+		"deployKubeSecondaryDNS":     "Disabled",
+		"alignCPUs":                  "Disabled",
+		"persistentReservation":      "Disabled",
+	}
+	featureGates := nestedSlice(t, hyperConverged, "spec", "featureGates")
+	if len(featureGates) != len(wantFeatureGates) {
+		t.Fatalf("expected %d HyperConverged feature gates, got %d", len(wantFeatureGates), len(featureGates))
+	}
+	for _, rawFeatureGate := range featureGates {
+		featureGate, ok := rawFeatureGate.(map[string]interface{})
+		if !ok {
+			t.Fatalf("feature gate has unexpected type %T", rawFeatureGate)
+		}
+		name, _ := featureGate["name"].(string)
+		state, _ := featureGate["state"].(string)
+		if wantFeatureGates[name] != state {
+			t.Errorf("unexpected HyperConverged feature gate %q state %q", name, state)
+		}
+		delete(wantFeatureGates, name)
+	}
+	if len(wantFeatureGates) > 0 {
+		t.Errorf("HyperConverged Policy is missing feature gates: %#v", wantFeatureGates)
+	}
 }
 
 func TestCNVHubPolicyBindingTargetsAddonPlacement(t *testing.T) {
