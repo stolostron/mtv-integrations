@@ -138,6 +138,77 @@ spec:
           name: kubevirt-hyperconverged
           namespace: openshift-cnv
         upgradeApproval: Automatic
+    # Customers can edit this inform-only policy in the AddOnTemplate to
+    # set the desired CR for a fresh install. The hub Policy reads it only
+    # after the operator and webhook are ready. It never enforces the CR.
+    - apiVersion: policy.open-cluster-management.io/v1
+      kind: ConfigurationPolicy
+      metadata:
+        name: kubevirt-hyperconverged-config
+        namespace: open-cluster-management-policies
+      spec:
+        remediationAction: inform
+        severity: low
+        object-templates:
+          - complianceType: musthave
+            objectDefinition:
+              apiVersion: hco.kubevirt.io/v1
+              kind: HyperConverged
+              metadata:
+                name: kubevirt-hyperconverged
+                namespace: openshift-cnv
+                annotations:
+                  deployOVS: "false"
+              spec:
+                virtualization:
+                  virtualMachineOptions:
+                    disableFreePageReporting: false
+                    disableSerialConsoleLog: true
+                  higherWorkloadDensity:
+                    memoryOvercommitPercentage: 100
+                  liveMigrationConfig:
+                    allowAutoConverge: false
+                    allowPostCopy: false
+                    completionTimeoutPerGiB: 800
+                    parallelMigrationsPerCluster: 5
+                    parallelOutboundMigrationsPerNode: 2
+                    progressTimeout: 150
+                  workloadUpdateStrategy:
+                    batchEvictionInterval: 1m0s
+                    batchEvictionSize: 10
+                    workloadUpdateMethods:
+                      - LiveMigrate
+                  vmiCPUAllocationRatio: 10
+                security:
+                  certConfig:
+                    ca:
+                      duration: 48h0m0s
+                      renewBefore: 24h0m0s
+                    server:
+                      duration: 24h0m0s
+                      renewBefore: 12h0m0s
+                deployment:
+                  applicationAwareConfig:
+                    allowApplicationAwareClusterResourceQuota: false
+                    enable: false
+                    vmiCalcConfigName: DedicatedVirtualResources
+                  deployVmConsoleProxy: false
+                  uninstallStrategy: BlockUninstallIfWorkloadsExist
+                workloadSources:
+                  enableCommonBootImageImport: true
+                featureGates:
+                  - name: decentralizedLiveMigration
+                    state: Enabled
+                  - name: downwardMetrics
+                    state: Disabled
+                  - name: disableMDevConfiguration
+                    state: Disabled
+                  - name: deployKubeSecondaryDNS
+                    state: Disabled
+                  - name: alignCPUs
+                    state: Disabled
+                  - name: persistentReservation
+                    state: Disabled
     - apiVersion: hco.kubevirt.io/v1
       kind: HyperConverged
       metadata:

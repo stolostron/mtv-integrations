@@ -37,7 +37,7 @@ The CNV Addon deploys the KubeVirt Hyperconverged operator, which provides virtu
 
 ### Features
 - Deploys the KubeVirt Hyperconverged operator in the `openshift-cnv` namespace
-- Creates the HyperConverged custom resource through a hub ConfigurationPolicy after the HCO OperatorPolicy is Compliant
+- Keeps the editable HyperConverged configuration in the AddOnTemplate and creates the CR through a gated hub Policy
 - Sets up HostPathProvisioner for storage
 - Uses OperatorPolicy to manage the operator lifecycle
 - Automatically upgrades the operator (Automatic approval)
@@ -83,7 +83,9 @@ Note:
 
 ### HyperConverged readiness gate and recovery
 
-The CNV AddOnTemplate installs the HCO OperatorPolicy. A hub Policy targets the same placement and waits for that OperatorPolicy to report `Compliant` before a ConfigurationPolicy creates the HyperConverged resource. The addon ManifestWork retains an identity-only `ReadOnly` HyperConverged entry as an ownership handoff: it neither creates nor changes the CR, and selective orphaning lets the Work relinquish the old owner reference during upgrade. The hub Policy creates the full CR only after the operator is ready.
+The CNV AddOnTemplate installs the HCO OperatorPolicy and an `inform` ConfigurationPolicy named `kubevirt-hyperconverged-config`. Edit that ConfigurationPolicy's `spec.object-templates[0].objectDefinition` in the AddOnTemplate to customize the HyperConverged resource for a fresh install. The `inform` policy only reports whether its desired configuration is present; it does not create or update the CR. On an existing CR with custom settings, it may report `NonCompliant` even though the hub Policy intentionally leaves that CR unchanged.
+
+A hub Policy targets the same placement and waits for the OperatorPolicy to report `Compliant`. It also checks for a ready endpoint behind `hco-webhook-service`, then reads the addon ConfigurationPolicy and creates a missing HyperConverged CR from its object definition. It keeps an existing CR identity-only, preserving the previous `CreateOnly` behavior. The addon ManifestWork also keeps an identity-only `ReadOnly` HyperConverged entry. `ReadOnly` does not remove an AppliedManifestWork owner reference left by an older Work; that owner reference needs a separate migration before deleting the Work.
 
 For clusters that failed during an earlier install, see [Recovering a failed CNV HyperConverged install](../docs/CNV_HYPERCONVERGED_RECOVERY.md). The runbook explains how to remove a failed HyperConverged resource, recover a failed HCO CSV if needed, and let the dependent Policy recreate HyperConverged after the operator is healthy.
 

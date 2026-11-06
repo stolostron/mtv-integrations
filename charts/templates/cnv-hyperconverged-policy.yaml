@@ -7,7 +7,7 @@ metadata:
     policy.open-cluster-management.io/categories: CM Configuration Management
     policy.open-cluster-management.io/controls: CM-2 Baseline Configuration
     policy.open-cluster-management.io/standards: NIST SP 800-53
-    policy.open-cluster-management.io/description: Create HyperConverged after the HCO OperatorPolicy is compliant and the webhook has a ready endpoint, while preserving existing configuration on upgrade.
+    policy.open-cluster-management.io/description: Create HyperConverged from the addon ConfigurationPolicy after the HCO OperatorPolicy is compliant and the webhook has a ready endpoint, while preserving existing configuration on upgrade.
 spec:
   dependencies:
     - apiVersion: policy.open-cluster-management.io/v1beta1
@@ -25,6 +25,8 @@ spec:
         spec:
           remediationAction: enforce
           severity: low
+          evaluationInterval:
+            compliant: 1m
           object-templates-raw: |
             {{`{{ $existing := lookup "hco.kubevirt.io/v1" "HyperConverged" "openshift-cnv" "kubevirt-hyperconverged" }}`}}
             {{`{{ if $existing }}`}}
@@ -51,65 +53,13 @@ spec:
             {{`{{ end }}`}}
             {{`{{ end }}`}}
             {{`{{ if $webhookReady }}`}}
+            {{`{{ $config := lookup "policy.open-cluster-management.io/v1" "ConfigurationPolicy" "open-cluster-management-policies" "kubevirt-hyperconverged-config" }}`}}
+            {{`{{ if $config }}`}}
             - complianceType: musthave
-              objectDefinition:
-                apiVersion: hco.kubevirt.io/v1
-                kind: HyperConverged
-                metadata:
-                  name: kubevirt-hyperconverged
-                  namespace: openshift-cnv
-                  annotations:
-                    deployOVS: "false"
-                spec:
-                  virtualization:
-                    virtualMachineOptions:
-                      disableFreePageReporting: false
-                      disableSerialConsoleLog: true
-                    higherWorkloadDensity:
-                      memoryOvercommitPercentage: 100
-                    liveMigrationConfig:
-                      allowAutoConverge: false
-                      allowPostCopy: false
-                      completionTimeoutPerGiB: 800
-                      parallelMigrationsPerCluster: 5
-                      parallelOutboundMigrationsPerNode: 2
-                      progressTimeout: 150
-                    workloadUpdateStrategy:
-                      batchEvictionInterval: 1m0s
-                      batchEvictionSize: 10
-                      workloadUpdateMethods:
-                        - LiveMigrate
-                    vmiCPUAllocationRatio: 10
-                  security:
-                    certConfig:
-                      ca:
-                        duration: 48h0m0s
-                        renewBefore: 24h0m0s
-                      server:
-                        duration: 24h0m0s
-                        renewBefore: 12h0m0s
-                  deployment:
-                    applicationAwareConfig:
-                      allowApplicationAwareClusterResourceQuota: false
-                      enable: false
-                      vmiCalcConfigName: DedicatedVirtualResources
-                    deployVmConsoleProxy: false
-                    uninstallStrategy: BlockUninstallIfWorkloadsExist
-                  workloadSources:
-                    enableCommonBootImageImport: true
-                  featureGates:
-                    - name: decentralizedLiveMigration
-                      state: Enabled
-                    - name: downwardMetrics
-                      state: Disabled
-                    - name: disableMDevConfiguration
-                      state: Disabled
-                    - name: deployKubeSecondaryDNS
-                      state: Disabled
-                    - name: alignCPUs
-                      state: Disabled
-                    - name: persistentReservation
-                      state: Disabled
+              objectDefinition: {{`{{ (index (index $config.spec "object-templates") 0).objectDefinition | toJson }}`}}
+            {{`{{ else }}`}}
+            []
+            {{`{{ end }}`}}
             {{`{{ else }}`}}
             []
             {{`{{ end }}`}}
