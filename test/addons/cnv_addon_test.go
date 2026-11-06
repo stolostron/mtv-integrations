@@ -338,6 +338,24 @@ func TestCNVConfigurationPolicyUsesCustomizedHCO(t *testing.T) {
 	}
 }
 
+func TestCNVConfigurationPolicyPreservesExistingHCO(t *testing.T) {
+	objects := renderCNVPolicyTemplate(t, rawCNVPolicyTemplate(t), true, true)
+	if len(objects) != 1 {
+		t.Fatalf("expected one HCO identity template, got %#v", objects)
+	}
+	hco := nestedMap(t, objects[0], "objectDefinition")
+	metadata := nestedMap(t, hco, "metadata")
+	if metadata["name"] != "kubevirt-hyperconverged" || metadata["namespace"] != "openshift-cnv" {
+		t.Fatalf("unexpected existing HCO identity: %#v", metadata)
+	}
+	if _, found, err := unstructured.NestedMap(hco, "spec"); err != nil || found {
+		t.Fatalf("existing HCO spec must not be enforced: %v", err)
+	}
+	if _, found, err := unstructured.NestedMap(hco, "metadata", "annotations"); err != nil || found {
+		t.Fatalf("existing HCO annotations must not be enforced: %v", err)
+	}
+}
+
 func rawCNVPolicyTemplate(t *testing.T) string {
 	t.Helper()
 	addon := loadManifest(t, "addons/cnv-addon/cnv-addon-template.yaml", nil)
@@ -354,7 +372,7 @@ func rawCNVPolicyTemplate(t *testing.T) string {
 }
 
 func renderCNVPolicyTemplate(
-	t *testing.T, raw string, operatorReady bool,
+	t *testing.T, raw string, operatorReady bool, existingHCO ...bool,
 ) []map[string]interface{} {
 	t.Helper()
 	lookup := func(apiVersion, kind, namespace, name string) interface{} {
@@ -366,6 +384,22 @@ func renderCNVPolicyTemplate(
 			}
 			if operatorReady {
 				return map[string]interface{}{"status": map[string]interface{}{"compliant": "Compliant"}}
+			}
+			return ""
+		case "HyperConverged":
+			if apiVersion != "hco.kubevirt.io/v1" || namespace != "openshift-cnv" ||
+				name != "kubevirt-hyperconverged" {
+				t.Errorf("unexpected HCO lookup: %s %s/%s", apiVersion, namespace, name)
+			}
+			if len(existingHCO) != 0 && existingHCO[0] {
+				return map[string]interface{}{
+					"metadata": map[string]interface{}{"name": name},
+					"spec": map[string]interface{}{
+						"virtualization": map[string]interface{}{
+							"liveMigrationConfig": map[string]interface{}{"allowPostCopy": true},
+						},
+					},
+				}
 			}
 			return ""
 		default:
