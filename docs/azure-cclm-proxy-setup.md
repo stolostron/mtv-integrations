@@ -232,7 +232,7 @@ If `endpoint` is not `SynchronizationEndpointFound`, check Route/Service labels 
 
 From a **pod on the peer spoke** (not your workstation), run a **connectivity-only** check: TCP and TLS can reach the peer sync **Route** hostname on **443**. **`oc login`** only configures your kubeconfig; it does **not** run the command on the cluster.
 
-**`curl -vk`** skips server certificate verification (**`-k`**) — it confirms reachability and a TLS handshake, **not** that the certificate matches **kubevirt-ca** or the **kubevirt-external-ca** trust you configure in Step 3. Use it as a quick “can we open TLS to the Route?” test before CA exchange.
+**`curl -sk`** skips server certificate verification (**`-k`**) — it confirms reachability and a TLS handshake, **not** that the certificate matches **kubevirt-ca** or the **kubevirt-external-ca** trust you configure in Step 3. Use the **`OK` / `FAIL`** command below as a quick “can we open TLS to the Route?” test before CA exchange (no verbose output).
 
 ```bash
 PEER_ROUTE_HOST=virt-synchronization-endpoint-openshift-cnv.apps.<peer-cluster>
@@ -246,7 +246,7 @@ Only **`OK`** or **`FAIL`** is printed (no Route hostname in the output). **`cur
 
 Replace **`<peer-cluster>`** and adjust **`-n default`** if your namespace policy differs.
 
-**After Step 3** (peer CAs exchanged), verify the server certificate against the exchanged trust material — for example **`openssl s_client -connect "${PEER_ROUTE_HOST}:443" -servername "${PEER_ROUTE_HOST}" -CAfile peer-ca.pem`** from a pod that has **`peer-ca.pem`**, or **`curl`** **without** **`-k`** if the pod’s trust store includes the peer CA. Do **not** treat **`curl -vk`** alone as proof of correct service identity or CA trust.
+**After Step 3** (peer CAs exchanged), verify the server certificate against the exchanged trust material — for example **`openssl s_client -connect "${PEER_ROUTE_HOST}:443" -servername "${PEER_ROUTE_HOST}" -CAfile peer-ca.pem`** from a pod on the peer spoke that has **`peer-ca.pem`**, or **`curl`** **without** **`-k`** if the pod’s trust store includes the peer CA. Do **not** treat the **`OK` / `FAIL`** reachability check above as proof of correct service identity or CA trust.
 
 ---
 
