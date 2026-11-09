@@ -116,19 +116,12 @@ func TestCNVAddonConfigurationPolicyCreatesHCO(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			addon := loadManifest(t, tc.path, tc.replacements)
 			manifests := nestedSlice(t, addon, "spec", "agentSpec", "workload", "manifests")
-			operatorCount, configurationCount, hcoCount := 0, 0, 0
+			operatorCount, configurationCount := 0, 0
 			for _, raw := range manifests {
 				manifest := raw.(map[string]interface{})
 				switch manifest["kind"] {
 				case "HyperConverged":
-					hcoCount++
-					if _, found, err := unstructured.NestedMap(manifest, "spec"); err != nil || found {
-						t.Fatalf("ReadOnly HCO must have no spec: %v", err)
-					}
-					metadata := nestedMap(t, manifest, "metadata")
-					if metadata["name"] != "kubevirt-hyperconverged" || metadata["namespace"] != "openshift-cnv" {
-						t.Fatalf("unexpected ReadOnly HCO identity: %#v", metadata)
-					}
+					t.Fatal("the addon ManifestWork must not include HCO directly")
 				case "OperatorPolicy":
 					operatorCount++
 				case "Policy":
@@ -144,13 +137,13 @@ func TestCNVAddonConfigurationPolicyCreatesHCO(t *testing.T) {
 					}
 				}
 			}
-			if operatorCount != 1 || configurationCount != 1 || hcoCount != 1 {
-				t.Fatalf("expected one OperatorPolicy, one ConfigurationPolicy and one ReadOnly HCO, got %d, %d and %d",
-					operatorCount, configurationCount, hcoCount)
+			if operatorCount != 1 || configurationCount != 1 {
+				t.Fatalf("expected one OperatorPolicy and one ConfigurationPolicy, got %d and %d",
+					operatorCount, configurationCount)
 			}
 			configs := nestedSlice(t, addon, "spec", "agentSpec", "manifestConfigs")
-			if len(configs) != 3 {
-				t.Fatalf("expected OperatorPolicy, ConfigurationPolicy and HCO strategies, got %d", len(configs))
+			if len(configs) != 2 {
+				t.Fatalf("expected OperatorPolicy and ConfigurationPolicy strategies, got %d", len(configs))
 			}
 			strategies := map[string]string{}
 			for _, raw := range configs {
@@ -160,7 +153,7 @@ func TestCNVAddonConfigurationPolicyCreatesHCO(t *testing.T) {
 				strategies[id["resource"].(string)] = strategy["type"].(string)
 			}
 			if strategies["operatorpolicies"] != "CreateOnly" ||
-				strategies["configurationpolicies"] != "CreateOnly" || strategies["hyperconvergeds"] != "ReadOnly" {
+				strategies["configurationpolicies"] != "CreateOnly" {
 				t.Fatalf("unexpected manifest strategies: %#v", strategies)
 			}
 			deleteOption := nestedMap(t, addon, "spec", "agentSpec", "deleteOption")
