@@ -211,7 +211,7 @@ The script performs the following:
 
 ### CNV addon HyperConverged / webhook race
 
-Older CNV addon manifests delivered the HyperConverged custom resource in the same ManifestWork as the HCO OperatorPolicy. On slower managed clusters, HyperConverged could be validated before `hco-webhook-service` was ready and leave OLM in a failed state. The updated addon delivers a managed ConfigurationPolicy, which creates HCO after the OperatorPolicy is `Compliant`. OperatorPolicy compliance does not explicitly confirm ready webhook endpoints, so a webhook timing gap remains possible. Removing HCO from an existing ManifestWork may delete an HCO it previously owned; this needs a separate ownership handoff for upgrades.
+Older CNV addon manifests delivered the HyperConverged custom resource in the same ManifestWork as the HCO OperatorPolicy. On slower managed clusters, HyperConverged could be validated before `hco-webhook-service` was ready and leave OLM in a failed state. The updated addon delivers a managed ConfigurationPolicy, which creates HCO after the OperatorPolicy is `Compliant`. OperatorPolicy compliance does not explicitly confirm ready webhook endpoints, so a webhook timing gap remains possible.
 
 ## Contributing
 

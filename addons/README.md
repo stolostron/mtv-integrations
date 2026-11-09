@@ -84,8 +84,6 @@ The CNV AddOnTemplate installs one HCO OperatorPolicy and an enforcing Configura
 
 The AddOnTemplate renderer normally consumes Go template delimiters before a ConfigurationPolicy can evaluate them. The AddOnDeploymentConfig in `cnv-clustermanagementaddon.yaml` supplies the `HCO_TEMPLATE_START` delimiter so the managed policy receives its OperatorPolicy lookup template. Keep that default config in the ClusterManagementAddOn. A per-cluster AddOnDeploymentConfig override must also define `HCO_TEMPLATE_START` with the value `{{`; otherwise the policy template will not render. The ConfigurationPolicy uses `CreateOnly`: new clusters receive the enforcing policy, while an existing managed ConfigurationPolicy keeps its current settings.
 
-An older ManifestWork may still own an existing HCO. Updating that ManifestWork to remove its HCO manifest can delete the CR; upgrades need a separate ownership handoff before applying the new template.
-
 ## ClusterRole Permissions
 
 ### clusterrole.yaml
