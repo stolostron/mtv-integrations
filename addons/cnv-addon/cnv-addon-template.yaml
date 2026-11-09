@@ -4,13 +4,6 @@ metadata:
   name: kubevirt-hyperconverged
 spec:
   addonName: kubevirt-hyperconverged
-  registration:
-  - type: CustomSigner
-    customSigner:
-      signerName: open-cluster-management.io/kubevirt-hyperconverged-addon
-      signingCA:
-        name: kubevirt-hyperconverged-ca
-        namespace: openshift-cnv
   agentSpec:
     manifestConfigs:
       - resourceIdentifier:
@@ -124,7 +117,7 @@ spec:
               name: openshift-cnv
               namespace: openshift-cnv
               targetNamespaces:
-                  - openshift-cnv
+                - openshift-cnv
             subscription:
               channel: stable
               name: kubevirt-hyperconverged
