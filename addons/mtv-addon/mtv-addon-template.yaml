@@ -4,13 +4,6 @@ metadata:
   name: mtv-operator
 spec:
   addonName: mtv-operator
-  registration:
-    - type: CustomSigner
-      customSigner:
-        signerName: open-cluster-management.io/kubevirt-hyperconverged-addon
-        signingCA:
-          name: mtv-operator-ca
-          namespace: openshift-mtv
   agentSpec:
     manifestConfigs:
       - resourceIdentifier:
@@ -34,13 +27,13 @@ spec:
               name: openshift-mtv
               namespace: openshift-mtv
               targetNamespaces:
-                  - openshift-mtv
+                - openshift-mtv
             subscription:
               channel: release-v5.0
               name: mtv-operator
               namespace: openshift-mtv
             upgradeApproval: Automatic
-            removalBehavior:                  # This only works if the complianceType: mustnothave
+            removalBehavior: # This only works if the complianceType: mustnothave
               clusterServiceVersions: Delete
               customResourceDefinitions: Delete
               operatorGroups: DeleteIfUnused
