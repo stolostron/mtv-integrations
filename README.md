@@ -23,8 +23,9 @@ This repository also contains two addons for OCM that enable container native vi
 ### MTV (Migration Toolkit for Virtualization) Addon
 
 **Quick summary:**
+
 - **MTV Addon:** Installs the Migration Toolkit for Virtualization operator in the `openshift-mtv` namespace on the hub, enabling VM migration features. It uses the `release-v2.11` channel and enables UI plugin, validation, and volume populator features.
-- **CNV Addon:** Installs the KubeVirt Hyperconverged operator in the `openshift-cnv` namespace, providing virtualization capabilities. It configures optimized HyperConverged settings and uses OperatorPolicy for lifecycle management.
+- **CNV Addon:** Installs the KubeVirt Hyperconverged operator in the `openshift-cnv` namespace with OperatorPolicy. A managed ConfigurationPolicy creates the HyperConverged resource after the operator reports `Compliant`.
 
 Both addons require ACM and the Policy addon. The CNV Addon targets clusters labeled with `acm/cnv-operator-install: "true"`.
 
@@ -163,6 +164,44 @@ The addons do NOT automatically remove the operators when uninstalled. Manual cl
    oc delete namespace openshift-mtv
    oc delete namespace openshift-cnv
    ```
+
+## Known Issues
+
+### CNV Addon stuck "In progress" after upgrading ACM from 2.15 to 2.16
+
+**Affected versions:** ACM 2.15 → 2.16 upgrade
+
+**Symptom:**
+
+In the ACM console under **Infrastructure > Clusters > Add-ons**, the `kubevirt-hyperconverged` addon shows as **In progress** forever after upgrading to ACM 2.16:
+
+```text
+oc get managedclusteraddon -A | grep kubevirt-hyperconverged
+aro-central   kubevirt-hyperconverged   False      True
+```
+
+**Root cause:**
+
+In ACM 2.16, the two separate addons `kubevirt-hyperconverged` and `kubevirt-hyperconverged-operator` were merged into a single `kubevirt-hyperconverged` addon. During an in-place upgrade from 2.15 to 2.16, the old `ClusterManagementAddOn` and `AddOnTemplate` named `kubevirt-hyperconverged-operator` are **not automatically removed**, and the existing `kubevirt-hyperconverged` `ClusterManagementAddOn` is **not updated** to the new 2.16 version. The conflict between these stale 2.15 resources and the outdated `kubevirt-hyperconverged` CMA causes the addon controller to not update the `ManifestWork` properly, leaving newly enabled clusters stuck in progress.
+
+**Fix:**
+
+Run the `update_cleanup.sh` script from the root of this repository against your hub cluster. It requires `oc`, `jq`, and `yq` v4:
+
+```bash
+chmod +x update_cleanup.sh
+./update_cleanup.sh
+```
+
+The script performs the following:
+
+1. Deletes the stale ACM 2.15 resources: `ClusterManagementAddOn` and `AddOnTemplate` named `kubevirt-hyperconverged-operator`
+2. Reads the `installer.namespace` label from the existing `ClusterManagementAddOn kubevirt-hyperconverged`, applies the AddOnDeploymentConfig, and re-applies the ClusterManagementAddOn with the correct `installStrategy.placements.namespace`
+3. Merges HCO settings from the live AddOnTemplate into the updated CNV AddOnTemplate before applying it, then re-applies the `ManifestWork` named `addon-kubevirt-hyperconverged-deploy-0` on each managed cluster labeled `acm/cnv-operator-install: "true"`. The ManifestWork contains the `Role`, `RoleBindings`, OperatorPolicy, and ConfigurationPolicy. A newly created enforcing ConfigurationPolicy creates HCO after the OperatorPolicy reports `Compliant`; an existing ConfigurationPolicy retains its settings. If the script cannot read the live HCO definition, it stops before changing cluster resources.
+
+### CNV addon HyperConverged / webhook race
+
+Older CNV addon manifests delivered the HyperConverged custom resource in the same ManifestWork as the HCO OperatorPolicy. On slower managed clusters, HyperConverged could be validated before `hco-webhook-service` was ready and leave OLM in a failed state. The updated addon delivers a managed ConfigurationPolicy, which creates HCO after the OperatorPolicy is `Compliant`. OperatorPolicy compliance does not explicitly confirm ready webhook endpoints, so a webhook timing gap remains possible.
 
 ## Contributing
 
