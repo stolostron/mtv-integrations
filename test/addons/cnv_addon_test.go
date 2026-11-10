@@ -283,6 +283,9 @@ func TestCNVAddonTemplateDelimiterConfig(t *testing.T) {
 	if !reflect.DeepEqual(standalone, chart) {
 		t.Fatal("standalone and Helm delimiter configurations have diverged")
 	}
+	if standalone["spec"].(map[string]interface{})["agentInstallNamespace"] != "" {
+		t.Fatal("CNV delimiter config must preserve the AddOnTemplate namespace")
+	}
 	variables := nestedSlice(t, standalone, "spec", "customizedVariables")
 	if len(variables) != 1 || variables[0].(map[string]interface{})["value"] != "{{" {
 		t.Fatalf("expected one literal opening delimiter, got %#v", variables)
