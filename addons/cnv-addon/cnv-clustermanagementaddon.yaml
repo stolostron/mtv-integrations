@@ -12,8 +12,24 @@ spec:
     - group: addon.open-cluster-management.io
       resource: addontemplates
       name: kubevirt-hyperconverged
+    - group: addon.open-cluster-management.io
+      resource: addondeploymentconfigs
+      name: kubevirt-hyperconverged-template-values
+      namespace: open-cluster-management-global-set
   installStrategy:
     type: Placements
     placements:
     - name: openshift-cnv
       namespace: open-cluster-management-global-set
+---
+# Supplies the opening delimiter used by the managed ConfigurationPolicy's
+# Go template after AddOnTemplate rendering.
+apiVersion: addon.open-cluster-management.io/v1alpha1
+kind: AddOnDeploymentConfig
+metadata:
+  name: kubevirt-hyperconverged-template-values
+  namespace: open-cluster-management-global-set
+spec:
+  customizedVariables:
+    - name: HCO_TEMPLATE_START
+      value: "{{"
