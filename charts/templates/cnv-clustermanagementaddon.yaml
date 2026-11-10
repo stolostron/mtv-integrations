@@ -32,4 +32,4 @@ metadata:
 spec:
   customizedVariables:
     - name: HCO_TEMPLATE_START
-      value: {{ "{{" | quote }}
+      value: '{{`{{ print "{" "{" }}`}}'
