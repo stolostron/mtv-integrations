@@ -427,6 +427,59 @@ func addonConfigurationPolicy(t *testing.T, addon map[string]interface{}) map[st
 	return nil
 }
 
+func TestCNVGlobalPlacementExcludesManualInstall(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		path         string
+		replacements map[string]string
+	}{
+		{name: "standalone", path: "addons/cnv-addon/global-placement.yaml"},
+		{
+			name: "chart", path: "charts/templates/cnv-global-placement.yaml",
+			replacements: map[string]string{
+				"{{ .Values.global.namespace }}": "open-cluster-management-global-set",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			placement := loadManifest(t, tc.path, tc.replacements)
+			predicates := nestedSlice(t, placement, "spec", "predicates")
+			var installExpr, manualExpr map[string]interface{}
+			for _, raw := range predicates {
+				predicate := raw.(map[string]interface{})
+				selector := nestedMap(t, predicate, "requiredClusterSelector")
+				labelSelector, ok := selector["labelSelector"].(map[string]interface{})
+				if !ok {
+					continue
+				}
+				exprs, ok := labelSelector["matchExpressions"].([]interface{})
+				if !ok {
+					continue
+				}
+				for _, e := range exprs {
+					expr := e.(map[string]interface{})
+					switch expr["key"] {
+					case "acm/cnv-operator-install":
+						installExpr = expr
+					case "acm/cnv-operator-manual-install":
+						manualExpr = expr
+					}
+				}
+			}
+			if installExpr == nil || installExpr["operator"] != "In" {
+				t.Fatalf("missing install matchExpression: %#v", installExpr)
+			}
+			if manualExpr == nil || manualExpr["operator"] != "NotIn" {
+				t.Fatalf("missing manual-install NotIn expression: %#v", manualExpr)
+			}
+			manualValues, ok := manualExpr["values"].([]interface{})
+			if !ok || len(manualValues) != 1 || manualValues[0] != "true" {
+				t.Fatalf("manual-install NotIn values want [\"true\"]: %#v", manualExpr)
+			}
+		})
+	}
+}
+
 func TestCNVCleanupScriptUsesDirectConfigurationPolicy(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(repoRoot(), "update_cleanup.sh"))
 	if err != nil {

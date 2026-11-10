@@ -96,8 +96,9 @@ if [[ -z "$INSTALLER_NAMESPACE" ]]; then
   exit 1
 fi
 
-CLUSTERS="$(oc get managedclusters -l 'acm/cnv-operator-install=true' \
-  -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')"
+# Skip clusters that install CNV manually (same rule as openshift-cnv Placement).
+CLUSTERS="$(oc get managedclusters -l 'acm/cnv-operator-install=true' -o json | jq -r '
+  .items[] | select(.metadata.labels["acm/cnv-operator-manual-install"] != "true") | .metadata.name')"
 
 # Add the delimiter variable before updating the template. Without it, the
 # AddOnTemplate renderer would remove the managed policy's Go templates.
