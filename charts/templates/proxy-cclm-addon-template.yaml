@@ -88,7 +88,6 @@ spec:
                     configuration:
                       developerConfiguration:
                         featureGates:
-                          - DecentralizedLiveMigration
                           - CrossClusterMigrationProxy
                       migrations:
                         decentralizedLiveMigrationDatapath: Proxy

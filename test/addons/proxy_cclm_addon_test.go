@@ -159,7 +159,7 @@ func TestProxyCCLMKubeVirtConfigurationPolicy(t *testing.T) {
 	}
 	def := nestedMap(t, tpl, "objectDefinition")
 	gates := nestedSlice(t, def, "spec", "configuration", "developerConfiguration", "featureGates")
-	wantGates := []interface{}{"DecentralizedLiveMigration", "CrossClusterMigrationProxy"}
+	wantGates := []interface{}{"CrossClusterMigrationProxy"}
 	if !reflect.DeepEqual(gates, wantGates) {
 		t.Fatalf("unexpected featureGates: %#v", gates)
 	}
