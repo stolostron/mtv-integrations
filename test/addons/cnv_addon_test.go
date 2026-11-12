@@ -241,12 +241,50 @@ func TestCNVAddonWorkAgentsCanCreatePolicies(t *testing.T) {
 
 func TestCNVAddonTemplateDelimiterConfig(t *testing.T) {
 	standalone := loadManifestDocument(t, "addons/cnv-addon/cnv-clustermanagementaddon.yaml", 1, nil)
-	chart := loadManifestDocument(t, "charts/templates/cnv-clustermanagementaddon.yaml", 1, map[string]string{
-		"{{ .Values.global.namespace }}": "open-cluster-management-global-set",
-		"{{ \"{{\" | quote }}":           "\"{{\"",
-	})
+	data, err := os.ReadFile(filepath.Join(repoRoot(), "charts/templates/cnv-clustermanagementaddon.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	render := func(source string) string {
+		t.Helper()
+		parsed, err := template.New("chart").Parse(source)
+		if err != nil {
+			t.Fatalf("parse chart template: %v", err)
+		}
+		var output bytes.Buffer
+		values := map[string]interface{}{
+			"Values": map[string]interface{}{
+				"global": map[string]interface{}{"namespace": "open-cluster-management-global-set"},
+			},
+		}
+		if err := parsed.Execute(&output, values); err != nil {
+			t.Fatalf("render chart template: %v", err)
+		}
+		return output.String()
+	}
+
+	// Chart automation renders the source chart and rewrites its YAML before
+	// the operator renders the generated chart. The delimiter must survive both.
+	documents := strings.Split(render(string(data)), "\n---\n")
+	if len(documents) != 2 {
+		t.Fatalf("expected two chart documents, got %d", len(documents))
+	}
+	chart := make(map[string]interface{})
+	if err := yaml.Unmarshal([]byte(documents[1]), &chart); err != nil {
+		t.Fatalf("parse generated config: %v", err)
+	}
+	generated, err := yaml.Marshal(chart)
+	if err != nil {
+		t.Fatalf("rewrite generated config: %v", err)
+	}
+	if err := yaml.Unmarshal([]byte(render(string(generated))), &chart); err != nil {
+		t.Fatalf("parse operator-rendered config: %v", err)
+	}
 	if !reflect.DeepEqual(standalone, chart) {
 		t.Fatal("standalone and Helm delimiter configurations have diverged")
+	}
+	if standalone["spec"].(map[string]interface{})["agentInstallNamespace"] != "" {
+		t.Fatal("CNV delimiter config must preserve the AddOnTemplate namespace")
 	}
 	variables := nestedSlice(t, standalone, "spec", "customizedVariables")
 	if len(variables) != 1 || variables[0].(map[string]interface{})["value"] != "{{" {
