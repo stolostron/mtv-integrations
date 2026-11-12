@@ -15,15 +15,19 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-const (
-	// searchAPIService is the in-cluster address of the ACM Search API service.
-	searchAPIService = "https://search-search-api.open-cluster-management.svc:4010/searchapi/graphql"
-)
+// DefaultSearchNamespace preserves the endpoint used by standard ACM installs
+// when the Search CR is unavailable.
+const DefaultSearchNamespace = "open-cluster-management"
+
+// SearchAPIServiceEndpoint builds the in-cluster URL from the Search CR namespace.
+func SearchAPIServiceEndpoint(namespace string) string {
+	return fmt.Sprintf("https://search-search-api.%s.svc:4010/searchapi/graphql", namespace)
+}
 
 // SearchClient queries the ACM Search API via GraphQL.
 type SearchClient struct {
 	RestConfig *rest.Config
-	// SearchAPIEndpoint overrides searchAPIService for testing.
+	// SearchAPIEndpoint overrides discovery for local runs and explicit configuration.
 	SearchAPIEndpoint string
 	// ServiceCAPath is the path to the OpenShift service CA bundle PEM file.
 	// Defaults to DefaultServiceCAPath when empty.
@@ -44,7 +48,7 @@ func (s *SearchClient) endpoint() string {
 	if s.SearchAPIEndpoint != "" {
 		return s.SearchAPIEndpoint
 	}
-	return searchAPIService
+	return SearchAPIServiceEndpoint(DefaultSearchNamespace)
 }
 
 type graphQLRequest struct {
@@ -85,7 +89,6 @@ func (s *SearchClient) ListStorageClassProvisionersByCluster(
 	if err != nil {
 		return nil, fmt.Errorf("build HTTP client: %w", err)
 	}
-
 	out := make(map[string][]SCProvisioner)
 	offset := 0
 

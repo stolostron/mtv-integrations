@@ -6,6 +6,7 @@ package migrationadvisor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -37,6 +38,14 @@ func TestFilterClusterSCsByEligibility(t *testing.T) {
 	assert.Len(t, filtered, 1)
 	assert.Contains(t, filtered, "allowed-cluster")
 	assert.NotContains(t, filtered, "blocked-cluster")
+}
+
+func TestFetchFreshClusterData_SearchDiscoveryError(t *testing.T) {
+	h := &Handler{ResolveSearchAPIEndpoint: func(context.Context) (string, error) {
+		return "", errors.New("search lookup unavailable")
+	}}
+	_, err := h.fetchFreshClusterData(context.Background())
+	require.ErrorContains(t, err, "resolve Search API endpoint: search lookup unavailable")
 }
 
 // ── clusterDataCache ─────────────────────────────────────────────────────────
@@ -117,7 +126,6 @@ func TestServeHTTP_MissingParams(t *testing.T) {
 
 // ── getClusterSnapshot / fetchFreshClusterData ───────────────────────────────
 
-
 // newFakeSearchServer creates an httptest server mimicking the ACM Search API.
 func newFakeSearchServer(t *testing.T, clusters []string) *httptest.Server {
 	t.Helper()
@@ -187,6 +195,46 @@ func TestGetClusterSnapshot(t *testing.T) {
 	snap, err := h.getClusterSnapshot(context.Background())
 	require.NoError(t, err)
 	assert.NotEmpty(t, snap.nodes)
+	assert.NotEmpty(t, snap.scs)
+}
+
+func TestGetClusterSnapshot_RetriesSearchDiscovery(t *testing.T) {
+	thanosSrv := newFakeThanosServer(t)
+	defer thanosSrv.Close()
+	searchSrv := newFakeSearchServer(t, []string{"target-cluster"})
+	defer searchSrv.Close()
+
+	h := buildFakeHandlerWithClusters(t, thanosSrv, searchSrv, "target-cluster")
+	h.SearchAPIEndpoint = ""
+	lookups := 0
+	h.ResolveSearchAPIEndpoint = func(context.Context) (string, error) {
+		lookups++
+		if lookups == 1 {
+			return "", errors.New("Search CR not ready")
+		}
+		return searchSrv.URL + "/searchapi/graphql", nil
+	}
+
+	_, err := h.getClusterSnapshot(context.Background())
+	require.ErrorContains(t, err, "Search CR not ready")
+	snap, err := h.getClusterSnapshot(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 2, lookups)
+	assert.NotEmpty(t, snap.scs)
+}
+
+func TestGetClusterSnapshot_ExplicitSearchEndpointSkipsDiscovery(t *testing.T) {
+	thanosSrv := newFakeThanosServer(t)
+	defer thanosSrv.Close()
+	searchSrv := newFakeSearchServer(t, []string{"target-cluster"})
+	defer searchSrv.Close()
+
+	h := buildFakeHandlerWithClusters(t, thanosSrv, searchSrv, "target-cluster")
+	h.ResolveSearchAPIEndpoint = func(context.Context) (string, error) {
+		return "", errors.New("resolver should not be called")
+	}
+	snap, err := h.getClusterSnapshot(context.Background())
+	require.NoError(t, err)
 	assert.NotEmpty(t, snap.scs)
 }
 
