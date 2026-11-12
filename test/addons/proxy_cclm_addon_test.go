@@ -4,19 +4,13 @@
 package addons_test
 
 import (
-	"os"
-	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 )
 
 func TestProxyCCLMAddonChartParity(t *testing.T) {
-	replacements := map[string]string{
-		"{{`{{KV_TEMPLATE_START}}`}}": "{{KV_TEMPLATE_START}}",
-	}
 	standalone := loadManifest(t, "addons/proxy-cclm-addon/proxy-cclm-addon-template.yaml", nil)
-	chart := loadManifest(t, "charts/templates/proxy-cclm-addon-template.yaml", replacements)
+	chart := loadManifest(t, "charts/templates/proxy-cclm-addon-template.yaml", nil)
 	if !reflect.DeepEqual(standalone["spec"], chart["spec"]) {
 		t.Fatal("proxy-cclm AddOnTemplate spec differs between addon and chart")
 	}
@@ -65,33 +59,113 @@ func TestProxyCCLMPlacementUsesProxyLabel(t *testing.T) {
 	}
 }
 
+func TestProxyCCLMConfigurationPolicyCreateOnly(t *testing.T) {
+	addon := loadManifest(t, "addons/proxy-cclm-addon/proxy-cclm-addon-template.yaml", nil)
+	configs := nestedSlice(t, addon, "spec", "agentSpec", "manifestConfigs")
+	want := []map[string]interface{}{
+		{
+			"group":     "policy.open-cluster-management.io",
+			"resource":  "configurationpolicies",
+			"name":      "proxy-cclm-kubevirt-config",
+			"namespace": "open-cluster-management-policies",
+		},
+		{
+			"group":     "",
+			"resource":  "services",
+			"name":      "virt-synchronization-controller",
+			"namespace": "openshift-cnv",
+		},
+		{
+			"group":     "route.openshift.io",
+			"resource":  "routes",
+			"name":      "virt-synchronization-endpoint",
+			"namespace": "openshift-cnv",
+		},
+	}
+	if len(configs) != len(want) {
+		t.Fatalf("expected %d manifestConfigs, got %d", len(want), len(configs))
+	}
+	for i, w := range want {
+		cfg := configs[i].(map[string]interface{})
+		id := nestedMap(t, cfg, "resourceIdentifier")
+		for k, v := range w {
+			if id[k] != v {
+				t.Fatalf("manifestConfig[%d] resourceIdentifier[%s]: got %#v want %#v", i, k, id[k], v)
+			}
+		}
+		strategy := nestedMap(t, cfg, "updateStrategy")
+		if strategy["type"] != "CreateOnly" {
+			t.Fatalf("manifestConfig[%d]: expected CreateOnly update strategy, got %#v", i, strategy)
+		}
+	}
+}
+
+func TestProxyCCLMPolicyManagerRBAC(t *testing.T) {
+	addon := loadManifest(t, "addons/proxy-cclm-addon/proxy-cclm-addon-template.yaml", nil)
+	manifests := nestedSlice(t, addon, "spec", "agentSpec", "workload", "manifests")
+	if len(manifests) < 4 {
+		t.Fatalf("expected Role, RoleBindings, and policy manifests, got %d", len(manifests))
+	}
+	role := manifests[0].(map[string]interface{})
+	if role["kind"] != "Role" {
+		t.Fatalf("first workload manifest should be Role, got %v", role["kind"])
+	}
+	roleMeta := nestedMap(t, role, "metadata")
+	if roleMeta["name"] != "proxy-cclm-policy-manager" || roleMeta["namespace"] != "open-cluster-management-policies" {
+		t.Fatalf("unexpected Role metadata: %#v", roleMeta)
+	}
+	rules := nestedSlice(t, role, "rules")
+	if len(rules) != 1 {
+		t.Fatalf("expected one Role rule, got %d", len(rules))
+	}
+	rule := rules[0].(map[string]interface{})
+	resources, _ := rule["resources"].([]interface{})
+	if len(resources) != 1 || resources[0] != "configurationpolicies" {
+		t.Fatalf("proxy-cclm Role should scope configurationpolicies only: %#v", resources)
+	}
+	for i := 1; i <= 2; i++ {
+		rb := manifests[i].(map[string]interface{})
+		if rb["kind"] != "RoleBinding" {
+			t.Fatalf("workload manifest[%d] should be RoleBinding, got %v", i, rb["kind"])
+		}
+	}
+	policy := manifests[3].(map[string]interface{})
+	if policy["kind"] != "ConfigurationPolicy" {
+		t.Fatalf("fourth workload manifest should be ConfigurationPolicy, got %v", policy["kind"])
+	}
+}
+
 func TestProxyCCLMKubeVirtConfigurationPolicy(t *testing.T) {
 	addon := loadManifest(t, "addons/proxy-cclm-addon/proxy-cclm-addon-template.yaml", nil)
 	manifests := nestedSlice(t, addon, "spec", "agentSpec", "workload", "manifests")
-	var raw string
+	var policySpec map[string]interface{}
 	for _, m := range manifests {
 		manifest := m.(map[string]interface{})
-		if manifest["kind"] != "ConfigurationPolicy" {
-			continue
+		if manifest["kind"] == "ConfigurationPolicy" {
+			policySpec = nestedMap(t, manifest, "spec")
+			break
 		}
-		spec := nestedMap(t, manifest, "spec")
-		raw, _ = spec["object-templates-raw"].(string)
-		break
 	}
-	if raw == "" {
-		t.Fatal("ConfigurationPolicy object-templates-raw missing")
+	if policySpec == nil {
+		t.Fatal("ConfigurationPolicy manifest missing")
 	}
-	for _, fragment := range []string{
-		`lookup "kubevirt.io/v1" "KubeVirt"`,
-		"DecentralizedLiveMigration",
-		"CrossClusterMigrationProxy",
-		"uniq $gates",
-		"decentralizedLiveMigrationDatapath: Proxy",
-		"kubevirt-kubevirt-hyperconverged",
-	} {
-		if !strings.Contains(raw, fragment) {
-			t.Fatalf("object-templates-raw missing %q", fragment)
-		}
+	templates := nestedSlice(t, policySpec, "object-templates")
+	if len(templates) != 1 {
+		t.Fatalf("expected one object-template, got %d", len(templates))
+	}
+	tpl := templates[0].(map[string]interface{})
+	if tpl["complianceType"] != "musthave" {
+		t.Fatalf("unexpected complianceType: %v", tpl["complianceType"])
+	}
+	def := nestedMap(t, tpl, "objectDefinition")
+	gates := nestedSlice(t, def, "spec", "configuration", "developerConfiguration", "featureGates")
+	wantGates := []interface{}{"DecentralizedLiveMigration", "CrossClusterMigrationProxy"}
+	if !reflect.DeepEqual(gates, wantGates) {
+		t.Fatalf("unexpected featureGates: %#v", gates)
+	}
+	migrations := nestedMap(t, def, "spec", "configuration", "migrations")
+	if migrations["decentralizedLiveMigrationDatapath"] != "Proxy" {
+		t.Fatalf("unexpected datapath: %#v", migrations["decentralizedLiveMigrationDatapath"])
 	}
 }
 
@@ -117,28 +191,5 @@ func TestProxyCCLMSyncEndpointManifests(t *testing.T) {
 	}
 	if !sawService || !sawRoute {
 		t.Fatalf("expected sync Service and Route manifests, service=%v route=%v", sawService, sawRoute)
-	}
-}
-
-func TestProxyCCLMDeploymentConfigDelimiter(t *testing.T) {
-	cma := loadManifestDocument(t, "addons/proxy-cclm-addon/proxy-cclm-clustermanagementaddon.yaml", 1, nil)
-	vars := nestedSlice(t, cma, "spec", "customizedVariables")
-	found := false
-	for _, v := range vars {
-		entry := v.(map[string]interface{})
-		if entry["name"] == "KV_TEMPLATE_START" && entry["value"] == "{{" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("AddOnDeploymentConfig must define KV_TEMPLATE_START")
-	}
-
-	data, err := os.ReadFile(filepath.Join(repoRoot(), "addons/proxy-cclm-addon/proxy-cclm-addon-template.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), "{{KV_TEMPLATE_START}}") {
-		t.Fatal("proxy-cclm AddOnTemplate must use KV_TEMPLATE_START placeholder")
 	}
 }

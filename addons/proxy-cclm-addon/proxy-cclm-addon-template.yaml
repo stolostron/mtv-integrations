@@ -5,8 +5,65 @@ metadata:
 spec:
   addonName: proxy-cclm
   agentSpec:
+    manifestConfigs:
+      - resourceIdentifier:
+          group: policy.open-cluster-management.io
+          resource: configurationpolicies
+          name: proxy-cclm-kubevirt-config
+          namespace: open-cluster-management-policies
+        updateStrategy:
+          type: CreateOnly
+      - resourceIdentifier:
+          group: ""
+          resource: services
+          name: virt-synchronization-controller
+          namespace: openshift-cnv
+        updateStrategy:
+          type: CreateOnly
+      - resourceIdentifier:
+          group: route.openshift.io
+          resource: routes
+          name: virt-synchronization-endpoint
+          namespace: openshift-cnv
+        updateStrategy:
+          type: CreateOnly
     workload:
       manifests:
+        - apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          metadata:
+            name: proxy-cclm-policy-manager
+            namespace: open-cluster-management-policies
+          rules:
+            - apiGroups: ["policy.open-cluster-management.io"]
+              resources: ["configurationpolicies"]
+              verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        - apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          metadata:
+            name: proxy-cclm-policy-manager-hosted-binding
+            namespace: open-cluster-management-policies
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: Role
+            name: proxy-cclm-policy-manager
+          subjects:
+            - kind: ServiceAccount
+              name: klusterlet-{{ `{{CLUSTER_NAME}}` }}-work-sa
+              namespace: open-cluster-management-{{ `{{CLUSTER_NAME}}` }}
+        - apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          metadata:
+            name: proxy-cclm-policy-manager-binding
+            namespace: open-cluster-management-policies
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: Role
+            name: proxy-cclm-policy-manager
+          subjects:
+            - kind: ServiceAccount
+              name: klusterlet-work-sa
+              namespace: open-cluster-management-agent
         - apiVersion: policy.open-cluster-management.io/v1
           kind: ConfigurationPolicy
           metadata:
@@ -19,19 +76,7 @@ spec:
             evaluationInterval:
               compliant: 1m
               noncompliant: 30s
-            object-templates-raw: |
-              {{KV_TEMPLATE_START}} $kv := lookup "kubevirt.io/v1" "KubeVirt" "openshift-cnv" "kubevirt-kubevirt-hyperconverged" }}
-              {{KV_TEMPLATE_START}} if $kv }}
-              {{KV_TEMPLATE_START}} $gates := list }}
-              {{KV_TEMPLATE_START}} with $kv }}
-              {{KV_TEMPLATE_START}} range .spec.configuration.developerConfiguration.featureGates }}
-              {{KV_TEMPLATE_START}} $gates = append $gates . }}
-              {{KV_TEMPLATE_START}} end }}
-              {{KV_TEMPLATE_START}} end }}
-              {{KV_TEMPLATE_START}} range (list "DecentralizedLiveMigration" "CrossClusterMigrationProxy") }}
-              {{KV_TEMPLATE_START}} $gates = append $gates . }}
-              {{KV_TEMPLATE_START}} end }}
-              {{KV_TEMPLATE_START}} $gates = uniq $gates }}
+            object-templates:
               - complianceType: musthave
                 objectDefinition:
                   apiVersion: kubevirt.io/v1
@@ -43,14 +88,10 @@ spec:
                     configuration:
                       developerConfiguration:
                         featureGates:
-              {{KV_TEMPLATE_START}} range $gates }}
-                          - {{ . }}
-              {{KV_TEMPLATE_START}} end }}
+                          - DecentralizedLiveMigration
+                          - CrossClusterMigrationProxy
                       migrations:
                         decentralizedLiveMigrationDatapath: Proxy
-              {{KV_TEMPLATE_START}} else }}
-              []
-              {{KV_TEMPLATE_START}} end }}
         - apiVersion: v1
           kind: Service
           metadata:
