@@ -1,0 +1,97 @@
+apiVersion: addon.open-cluster-management.io/v1alpha1
+kind: AddOnTemplate
+metadata:
+  name: proxy-cclm
+spec:
+  addonName: proxy-cclm
+  agentSpec:
+    workload:
+      manifests:
+        - apiVersion: policy.open-cluster-management.io/v1
+          kind: ConfigurationPolicy
+          metadata:
+            name: proxy-cclm-kubevirt-config
+            namespace: open-cluster-management-policies
+          spec:
+            remediationAction: enforce
+            severity: low
+            pruneObjectBehavior: None
+            evaluationInterval:
+              compliant: 1m
+              noncompliant: 30s
+            object-templates-raw: |
+              {{KV_TEMPLATE_START}} $kv := lookup "kubevirt.io/v1" "KubeVirt" "openshift-cnv" "kubevirt-kubevirt-hyperconverged" }}
+              {{KV_TEMPLATE_START}} if $kv }}
+              {{KV_TEMPLATE_START}} $gates := list }}
+              {{KV_TEMPLATE_START}} with $kv }}
+              {{KV_TEMPLATE_START}} range .spec.configuration.developerConfiguration.featureGates }}
+              {{KV_TEMPLATE_START}} $gates = append $gates . }}
+              {{KV_TEMPLATE_START}} end }}
+              {{KV_TEMPLATE_START}} end }}
+              {{KV_TEMPLATE_START}} range (list "DecentralizedLiveMigration" "CrossClusterMigrationProxy") }}
+              {{KV_TEMPLATE_START}} $gates = append $gates . }}
+              {{KV_TEMPLATE_START}} end }}
+              {{KV_TEMPLATE_START}} $gates = uniq $gates }}
+              - complianceType: musthave
+                objectDefinition:
+                  apiVersion: kubevirt.io/v1
+                  kind: KubeVirt
+                  metadata:
+                    name: kubevirt-kubevirt-hyperconverged
+                    namespace: openshift-cnv
+                  spec:
+                    configuration:
+                      developerConfiguration:
+                        featureGates:
+              {{KV_TEMPLATE_START}} range $gates }}
+                          - {{ . }}
+              {{KV_TEMPLATE_START}} end }}
+                      migrations:
+                        decentralizedLiveMigrationDatapath: Proxy
+              {{KV_TEMPLATE_START}} else }}
+              []
+              {{KV_TEMPLATE_START}} end }}
+        - apiVersion: v1
+          kind: Service
+          metadata:
+            name: virt-synchronization-controller
+            namespace: openshift-cnv
+            labels:
+              kubevirt.io/synchronization-endpoint: "true"
+          spec:
+            selector:
+              kubevirt.io: virt-synchronization-controller
+            ports:
+              - name: grpc
+                port: 9185
+                protocol: TCP
+                targetPort: sync
+            type: ClusterIP
+        - apiVersion: route.openshift.io/v1
+          kind: Route
+          metadata:
+            name: virt-synchronization-endpoint
+            namespace: openshift-cnv
+            labels:
+              kubevirt.io/synchronization-endpoint: "true"
+          spec:
+            to:
+              kind: Service
+              name: virt-synchronization-controller
+            port:
+              targetPort: grpc
+            tls:
+              termination: passthrough
+              insecureEdgeTerminationPolicy: None
+    deleteOption:
+      propagationPolicy: SelectivelyOrphan
+      selectivelyOrphans:
+        orphaningRules:
+          - group: ""
+            resource: services
+            namespace: openshift-cnv
+            name: virt-synchronization-controller
+          - group: route.openshift.io
+            resource: routes
+            namespace: openshift-cnv
+            name: virt-synchronization-endpoint

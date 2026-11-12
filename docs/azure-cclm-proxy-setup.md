@@ -4,6 +4,8 @@ This guide is for **operators and customers** running **Migration Toolkit for Vi
 
 Background: [Decentralized live migration — KubeVirt user guide](https://kubevirt.io/user-guide/compute/decentralized_live_migration/).
 
+**ACM automation:** Label the hub `ManagedCluster` with `acm/proxy-cclm: "true"` to deploy the `proxy-cclm` addon on that spoke (KubeVirt Proxy configuration plus synchronization `Service`/`Route`). Prerequisite: OpenShift Virtualization is already installed. See `addons/proxy-cclm-addon/` and [ACM-50184](https://redhat.atlassian.net/browse/ACM-50184).
+
 ## Overview
 
 | Traffic | Path |

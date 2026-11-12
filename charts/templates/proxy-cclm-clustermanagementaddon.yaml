@@ -1,0 +1,33 @@
+apiVersion: addon.open-cluster-management.io/v1beta1
+kind: ClusterManagementAddOn
+metadata:
+  name: proxy-cclm
+  annotations:
+    addon.open-cluster-management.io/lifecycle: "addon-manager"
+spec:
+  addOnMeta:
+    description: CCLM Proxy datapath (KubeVirt + sync endpoint)
+    displayName: CCLM Proxy datapath
+  defaultConfigs:
+    - group: addon.open-cluster-management.io
+      resource: addontemplates
+      name: proxy-cclm
+    - group: addon.open-cluster-management.io
+      resource: addondeploymentconfigs
+      name: proxy-cclm-template-values
+      namespace: {{ .Values.global.namespace }}
+  installStrategy:
+    type: Placements
+    placements:
+      - name: proxy-cclm
+        namespace: {{ .Values.global.namespace }}
+---
+apiVersion: addon.open-cluster-management.io/v1alpha1
+kind: AddOnDeploymentConfig
+metadata:
+  name: proxy-cclm-template-values
+  namespace: {{ .Values.global.namespace }}
+spec:
+  customizedVariables:
+    - name: KV_TEMPLATE_START
+      value: {{ "{{" | quote }}

@@ -2,10 +2,11 @@
 
 ## Overview
 
-This folder contains two addons for Advanced Cluster Management (ACM) that enable virtualization and migration capabilities:
+This folder contains addons for Advanced Cluster Management (ACM) that enable virtualization and migration capabilities:
 
 1. **MTV (Migration Toolkit for Virtualization) Addon**
 2. **CNV (Container-native Virtualization) Addon**
+3. **Proxy CCLM Addon** (`proxy-cclm-addon/`)
 
 Both addons require the OperatorPolicy to be deployed on the target cluster, which is part of the ACM policy addon.
 
@@ -54,6 +55,19 @@ The addon is configured with:
   - Live migration configuration
   - Feature gate states
 
+## Proxy CCLM Addon
+
+### Purpose
+
+When a hub `ManagedCluster` is labeled `acm/proxy-cclm: "true"`, this addon applies the CCLM **Proxy** datapath on that spoke: a managed `ConfigurationPolicy` merges required `KubeVirt` feature gates and `decentralizedLiveMigrationDatapath: Proxy`, plus the virt-synchronization `Service` and `Route` from `docs/examples/cross-cluster-sync-proxy.yaml`.
+
+### Requirements
+
+- CNV / `kubevirt-kubevirt-hyperconverged` must already exist on the spoke (this addon does not install CNV).
+- Policy addon on hub and spokes.
+
+See `docs/azure-cclm-proxy-setup.md` for manual steps this addon automates.
+
 ## Installation
 
 To install the addons on your ACM hub cluster, use the following commands:
@@ -64,6 +78,9 @@ oc apply -f ./cnv-addon
 
 # Deploy MTV Addon
 oc apply -f ./mtv-addon
+
+# Deploy Proxy CCLM addon (hub Placement + template)
+oc apply -f ./proxy-cclm-addon
 
 # Delete CNV Addon
 oc delete -f ./cnv-addon
