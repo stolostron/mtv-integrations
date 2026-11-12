@@ -10,7 +10,9 @@ import (
 
 func TestProxyCCLMAddonChartParity(t *testing.T) {
 	standalone := loadManifest(t, "addons/proxy-cclm-addon/proxy-cclm-addon-template.yaml", nil)
-	chart := loadManifest(t, "charts/templates/proxy-cclm-addon-template.yaml", nil)
+	chart := loadManifest(t, "charts/templates/proxy-cclm-addon-template.yaml", map[string]string{
+		"{{ `{{CLUSTER_NAME}}` }}": "{{CLUSTER_NAME}}",
+	})
 	if !reflect.DeepEqual(standalone["spec"], chart["spec"]) {
 		t.Fatal("proxy-cclm AddOnTemplate spec differs between addon and chart")
 	}
