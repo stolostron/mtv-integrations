@@ -44,7 +44,8 @@ The CNV Addon deploys the KubeVirt Hyperconverged operator, which provides virtu
 ### Requirements
 - ACM installed
 - Policy addon installed on the hub and managed clusters
-- Target cluster must be labeled with `acm/cnv-operator-install: "true"`
+- Target cluster must be labeled with `acm/cnv-operator-install: "true"` for the addon to deploy CNV via ACM
+- To skip ACM CNV install (operator installed manually or by your own policy), set `acm/cnv-operator-manual-install: "true"` on the `ManagedCluster`. Omit the label or set it to `"false"` to allow the addon. MTV provider onboarding may still use `acm/cnv-operator-install` (see ACM-41613). The hub is still placed via `local-cluster: "true"` regardless of manual-install labels.
 
 ### Configuration
 The addon is configured with:
