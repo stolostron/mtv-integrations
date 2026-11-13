@@ -30,6 +30,9 @@ metadata:
   name: kubevirt-hyperconverged-template-values
   namespace: open-cluster-management-global-set
 spec:
+  # Preserve the namespace declared by the AddOnTemplate instead of using the
+  # addon manager default open-cluster-management-agent-addon namespace.
+  agentInstallNamespace: ""
   customizedVariables:
     - name: HCO_TEMPLATE_START
       value: "{{"
