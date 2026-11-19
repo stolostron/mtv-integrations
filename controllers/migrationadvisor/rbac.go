@@ -97,13 +97,6 @@ func CheckCallerAuthorizedForClusters(
 	)
 }
 
-func callerCoversClusters(ctx context.Context, callerClient dynamic.Interface, clusters []string) (bool, error) {
-	return callerCoversClustersForRole(
-		ctx, callerClient, clusters, advisorRoleManagedClusterAdmin(),
-		"authorization denied: caller lacks managedcluster:admin",
-	)
-}
-
 func callerCoversClustersForRole(
 	ctx context.Context,
 	callerClient dynamic.Interface,

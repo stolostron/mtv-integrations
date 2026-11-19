@@ -80,6 +80,23 @@ func TestCheckCallerAuthorizedForExchange_Denied(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestHandler_MissingClustersBadRequest(t *testing.T) {
+	up := fakeUserPermissionServer(nil)
+	defer up.Close()
+
+	h := NewHandler(nil, &rest.Config{Host: up.URL}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer test")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	var body api.CACLMExchangeResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "INVALID_REQUEST", body.Code)
+	assert.Contains(t, body.Message, "clusterA and clusterB")
+}
+
 func TestHandler_ForbiddenJSON(t *testing.T) {
 	up := fakeUserPermissionServer(nil)
 	defer up.Close()

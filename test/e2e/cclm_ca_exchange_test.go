@@ -269,7 +269,8 @@ var _ = Describe("Proxy CCLM CA exchange API", Label("cclm_ca_exchange"), Ordere
 			)
 		}
 		if kubevirtCAPrior != nil {
-			_, restoreErr := clientHub.CoreV1().ConfigMaps(kubevirtNs).Update(cleanupCtx, kubevirtCAPrior, metav1.UpdateOptions{})
+			_, restoreErr := clientHub.CoreV1().ConfigMaps(kubevirtNs).
+				Update(cleanupCtx, kubevirtCAPrior, metav1.UpdateOptions{})
 			deleteIgnoringNotFound(restoreErr, "restore "+kubevirtCAName)
 		} else if kubevirtCACreated {
 			deleteIgnoringNotFound(
@@ -291,7 +292,8 @@ var _ = Describe("Proxy CCLM CA exchange API", Label("cclm_ca_exchange"), Ordere
 		}
 		if caExchangeSACreated {
 			deleteIgnoringNotFound(
-				clientHub.CoreV1().ServiceAccounts(caExchangeSANamespace).Delete(cleanupCtx, caExchangeSAName, metav1.DeleteOptions{}),
+				clientHub.CoreV1().ServiceAccounts(caExchangeSANamespace).
+					Delete(cleanupCtx, caExchangeSAName, metav1.DeleteOptions{}),
 				caExchangeSAName+" ServiceAccount",
 			)
 		}

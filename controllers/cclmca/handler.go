@@ -97,6 +97,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	ctx := ctrl.LoggerInto(WithCallerBearerToken(r.Context(), parts[1]), log)
 
+	if resp, status := validateExchangeClusterFields(req); resp != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(resp)
+		return
+	}
+
 	allowed, err := checkCallerAuthorizedForExchange(
 		ctx, h.DynamicClient, h.RestConfig, parts[1], req.ClusterA, req.ClusterB,
 	)

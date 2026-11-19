@@ -18,7 +18,8 @@ func isSpokeRBACDenied(err error) bool {
 
 func spokeRBACDeniedMessage(clusterA, clusterB, failingCluster string, err error) string {
 	return fmt.Sprintf(
-		"cluster %q: access denied (%v). Grant kubevirt.io:admin in openshift-cnv on %q and %q (MRA) and label both acm/proxy-cclm=true.",
+		"cluster %q: access denied (%v). Grant kubevirt.io:admin in openshift-cnv on %q and %q (MRA); "+
+			"label both acm/proxy-cclm=true.",
 		failingCluster, err, clusterA, clusterB,
 	)
 }

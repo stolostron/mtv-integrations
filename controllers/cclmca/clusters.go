@@ -66,15 +66,23 @@ func validateProxyCCLMClusters(
 	return "", 0, ""
 }
 
-// preflightExchange validates the request before spoke access (names, proxy-cclm labels).
-func (e *Exchanger) preflightExchange(
-	ctx context.Context, req api.CACLMExchangeRequest,
-) (*api.CACLMExchangeResponse, int) {
+// validateExchangeClusterFields checks clusterA/clusterB before hub authorization or spoke I/O.
+func validateExchangeClusterFields(req api.CACLMExchangeRequest) (*api.CACLMExchangeResponse, int) {
 	if req.ClusterA == "" || req.ClusterB == "" {
 		return failResponse("INVALID_REQUEST", "clusterA and clusterB are required"), 400
 	}
 	if req.ClusterA == req.ClusterB {
 		return failResponse("INVALID_REQUEST", "clusterA and clusterB must differ"), 400
+	}
+	return nil, 0
+}
+
+// preflightExchange validates the request before spoke access (names, proxy-cclm labels).
+func (e *Exchanger) preflightExchange(
+	ctx context.Context, req api.CACLMExchangeRequest,
+) (*api.CACLMExchangeResponse, int) {
+	if resp, status := validateExchangeClusterFields(req); resp != nil {
+		return resp, status
 	}
 	if msg, status, errCode := validateProxyCCLMClusters(ctx, e.HubDynamic, req.ClusterA, req.ClusterB); status != 0 {
 		return failResponse(errCode, msg), status
