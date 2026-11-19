@@ -1,0 +1,19 @@
+apiVersion: cluster.open-cluster-management.io/v1
+kind: ManagedCluster
+metadata:
+  name: ca-spoke-a
+  labels:
+    acm/cnv-operator-install: "true"
+    acm/proxy-cclm: "true"
+spec:
+  hubAcceptsClient: true
+---
+apiVersion: cluster.open-cluster-management.io/v1
+kind: ManagedCluster
+metadata:
+  name: ca-spoke-b
+  labels:
+    acm/cnv-operator-install: "true"
+    acm/proxy-cclm: "true"
+spec:
+  hubAcceptsClient: true

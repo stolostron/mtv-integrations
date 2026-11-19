@@ -1,0 +1,13 @@
+# UserPermission fixture for proxy-cclm CA exchange e2e on kind (DNS-safe name; see MTV_ADVISOR_ROLE_KUBEVIRT_ADMIN).
+apiVersion: clusterview.open-cluster-management.io/v1alpha1
+kind: UserPermission
+metadata:
+  name: kubevirt-admin
+status:
+  bindings:
+    - cluster: ca-spoke-a
+      namespaces:
+        - "*"
+    - cluster: ca-spoke-b
+      namespaces:
+        - "*"

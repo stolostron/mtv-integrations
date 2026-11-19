@@ -18,6 +18,7 @@ MTV Integrations runs as a single Deployment in the `open-cluster-management` na
 │  │  Plan Validation        │  │  Migration Advisor API      │ │
 │  │  Webhook (:9443/TLS)    │  │  (:8082/HTTP)               │ │
 │  │  /validate-plan         │  │  /api/v1/migration-targets  │ │
+│  │                         │  │  /api/v1/proxy-cclm/ca-exchange│
 │  └─────────────────────────┘  └─────────────────────────────┘ │
 └──────────────────────────────────────────────────────────────┘
         │              │              │                │
@@ -90,6 +91,18 @@ Hub **TLSSecurityProfile** (min TLS version, ciphers, TLS groups) applies to the
 
 **Endpoint discovery:** on each advisor cluster-data refresh, `cmd/main.go` finds the Search CR and resolves its namespace for the Search API service or `search-api` Route. At startup it discovers the Thanos Query Frontend through the `rbac-query-proxy` Route in `open-cluster-management-observability`. Flags `--search-api-endpoint` and `--thanos-host` override discovery for local development.
 
+### Proxy CCLM CA exchange API
+
+**Endpoint:** `POST /api/v1/proxy-cclm/ca-exchange` (same HTTP server and port **8082** as migration advisor).
+
+**Purpose:** bidirectional trust setup for cross-cluster live migration (Proxy datapath): copy peer material from each spoke’s `kubevirt-ca` into the other spoke’s `kubevirt-external-ca`, then wait for KubeVirt to merge trust into `kubevirt-ca`. Replaces manual Step 3 in `docs/azure-cclm-proxy-setup.md` when both clusters are MTV-onboarded and labeled for proxy CCLM.
+
+**Preflight (hub only):** both `clusterA` and `clusterB` must exist as `ManagedCluster` resources with label **`acm/proxy-cclm=true`** before any spoke API call. Otherwise the handler returns HTTP **400** / `PROXY_CCLM_NOT_ENABLED`.
+
+**Implementation:** `controllers/cclmca/` (`handler.go`, `exchange.go`, `clusters.go`, `spoke.go`, `lock.go`, `certs.go`). Full API contract: [CCLM CA exchange API](CCLM_CA_EXCHANGE_API.md).
+
+**Authorization:** Bearer token; hub preflight requires **`acm-vm-fleet:admin`** (`local-cluster`, `namespaces: *`) and **`kubevirt.io:admin`** on both request clusters via **`UserPermission`** (`CheckCallerAuthorizedForClusters`). **proxy-cclm** **ConfigurationPolicy** merges CA ConfigMap rules into the CNV **`kubevirt.io:admin`** ClusterRole; spoke API denies stale RBAC via the managed-cluster proxy.
+
 ## Addons (YAML-only)
 
 Under `addons/`, the OCM AddOnTemplate manifests and supporting addon resources:
@@ -146,4 +159,17 @@ GET /api/v1/migration-targets?cluster=X&namespace=Y&name=Z
   → Filter clusters that can't fit the VM
   → Score remaining clusters (CPU + memory + storage)
   → Return ranked candidates + recommendation
+```
+
+### Proxy CCLM CA exchange
+
+```
+POST /api/v1/proxy-cclm/ca-exchange  (Bearer token)
+  → Authorize caller for clusterA and clusterB
+  → GET ManagedCluster clusterA, clusterB on hub
+  → Require label acm/proxy-cclm=true on each
+  → Spoke clients: caller Bearer token; API URL/CA from ManagedCluster and/or mtv-integrations/<cluster>-mtv (not the Secret token)
+  → Read kubevirt-ca on both spokes; merge trust via kubevirt-external-ca
+  → Hub Leases serialize concurrent exchanges per cluster
+  → Return per-cluster verification status (or 400/409/502/504)
 ```

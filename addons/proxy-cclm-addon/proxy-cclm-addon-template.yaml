@@ -91,6 +91,37 @@ spec:
                           - CrossClusterMigrationProxy
                       migrations:
                         decentralizedLiveMigrationDatapath: Proxy
+              # kubevirt.io:admin is a ClusterRole installed by the CNV operator on the spoke.
+              # Enforce named ConfigMap rules required for hub CA exchange (caller bearer via proxy).
+              - complianceType: musthave
+                objectDefinition:
+                  apiVersion: rbac.authorization.k8s.io/v1
+                  kind: ClusterRole
+                  metadata:
+                    name: kubevirt.io:admin
+                  rules:
+                    - apiGroups:
+                        - ""
+                      resources:
+                        - configmaps
+                      resourceNames:
+                        - kubevirt-ca
+                      verbs:
+                        - get
+                        - list
+                        - watch
+                    - apiGroups:
+                        - ""
+                      resources:
+                        - configmaps
+                      resourceNames:
+                        - kubevirt-external-ca
+                      verbs:
+                        - get
+                        - list
+                        - watch
+                        - update
+                        - patch
         - apiVersion: v1
           kind: Service
           metadata:

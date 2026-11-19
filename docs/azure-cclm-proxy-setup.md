@@ -269,6 +269,30 @@ The default sync serving certificate is aimed at **internal Service DNS** names,
 
 Each cluster has its own KubeVirt CA in ConfigMap **`kubevirt-ca`**. Cross-cluster mTLS requires each cluster to trust the peer’s CA.
 
+### ACM API (hub, both clusters labeled)
+
+When **MTV integrations** is deployed on the hub and both spokes are MTV-onboarded (`acm/cnv-operator-install=true` so hub Secrets **`mtv-integrations/<cluster>-mtv`** exist) **and** labeled **`acm/proxy-cclm=true`**, you can run bidirectional exchange through the advisor HTTP API instead of manual `oc patch` on each spoke. This does **not** depend on Forklift **Provider** CRs—only on spoke API credentials and KubeVirt ConfigMaps.
+
+The API caller needs hub **`UserPermission`** **`acm-vm-fleet:admin`** on **`local-cluster`** with `namespaces: *`. **You must also create hub `MulticlusterRoleAssignment`** so the same subject gets **`kubevirt.io:admin`** in **`openshift-cnv`** on **both** `ManagedCluster` names (Placement selecting those clusters). Spokes must be **`acm/proxy-cclm=true`** so the addon **ConfigurationPolicy** merges **kubevirt-ca** / **kubevirt-external-ca** rules into the **`kubevirt.io:admin`** ClusterRole installed by CNV. See [`CCLM_CA_EXCHANGE_API.md` — MRA on managed clusters](CCLM_CA_EXCHANGE_API.md#multiclusterroleassignment-on-managed-clusters).
+
+```bash
+# Label prerequisite (if not already done by proxy-cclm addon placement)
+oc label managedcluster <cluster-a> acm/proxy-cclm=true --overwrite
+oc label managedcluster <cluster-b> acm/proxy-cclm=true --overwrite
+
+ADVISOR="https://<mtv-advisor-route-host>"   # or in-cluster Service :8082
+# Caller must hold ACM fleet RBAC (UserPermission acm-vm-fleet:admin on local-cluster,
+# and MRA kubevirt.io:admin on openshift-cnv for both clusters) — see docs/CCLM_CA_EXCHANGE_API.md
+curl -sS -X POST "${ADVISOR}/api/v1/proxy-cclm/ca-exchange" \
+  -H "Authorization: Bearer $(oc whoami -t)" \
+  -H "Content-Type: application/json" \
+  -d '{"clusterA":"<cluster-a>","clusterB":"<cluster-b>"}'
+```
+
+If **either** cluster lacks **`acm/proxy-cclm=true`**, the API returns **HTTP 400** with JSON **`status: failed`**, **`code: PROXY_CCLM_NOT_ENABLED`**, and a **`message`** naming the first failing cluster (`clusterA` checked before `clusterB`). No spoke ConfigMaps are touched. Examples: **[`docs/CCLM_CA_EXCHANGE_API.md` — Missing label](CCLM_CA_EXCHANGE_API.md#missing-acmproxy-cclm-label)**.
+
+### Manual flow (any environment)
+
 Official flow ([user guide](https://github.com/kubevirt/user-guide/blob/main/docs/compute/decentralized_live_migration.md#configuring-kubevirt-ca-with-cross-cluster-live-migration)):
 
 **Serialize the two directions** so you are not patching **`kubevirt-external-ca`** on both clusters at once before either side has reconciled. Finish **B → A** (copy B’s material into A’s **`kubevirt-external-ca`**, apply, and confirm **`kubevirt-ca`** / operator status on A) before starting **A → B**.

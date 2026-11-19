@@ -152,14 +152,14 @@ func TestProxyCCLMKubeVirtConfigurationPolicy(t *testing.T) {
 		t.Fatal("ConfigurationPolicy manifest missing")
 	}
 	templates := nestedSlice(t, policySpec, "object-templates")
-	if len(templates) != 1 {
-		t.Fatalf("expected one object-template, got %d", len(templates))
+	if len(templates) != 2 {
+		t.Fatalf("expected two object-templates, got %d", len(templates))
 	}
-	tpl := templates[0].(map[string]interface{})
-	if tpl["complianceType"] != "musthave" {
-		t.Fatalf("unexpected complianceType: %v", tpl["complianceType"])
+	kubevirtTpl := templates[0].(map[string]interface{})
+	if kubevirtTpl["complianceType"] != "musthave" {
+		t.Fatalf("unexpected complianceType: %v", kubevirtTpl["complianceType"])
 	}
-	def := nestedMap(t, tpl, "objectDefinition")
+	def := nestedMap(t, kubevirtTpl, "objectDefinition")
 	gates := nestedSlice(t, def, "spec", "configuration", "developerConfiguration", "featureGates")
 	wantGates := []interface{}{"CrossClusterMigrationProxy"}
 	if !reflect.DeepEqual(gates, wantGates) {
@@ -168,6 +168,19 @@ func TestProxyCCLMKubeVirtConfigurationPolicy(t *testing.T) {
 	migrations := nestedMap(t, def, "spec", "configuration", "migrations")
 	if migrations["decentralizedLiveMigrationDatapath"] != "Proxy" {
 		t.Fatalf("unexpected datapath: %#v", migrations["decentralizedLiveMigrationDatapath"])
+	}
+
+	adminTpl := templates[1].(map[string]interface{})
+	if adminTpl["complianceType"] != "musthave" {
+		t.Fatalf("unexpected ClusterRole complianceType: %v", adminTpl["complianceType"])
+	}
+	crDef := nestedMap(t, adminTpl, "objectDefinition")
+	if crDef["kind"] != "ClusterRole" {
+		t.Fatalf("second template should be ClusterRole, got %v", crDef["kind"])
+	}
+	crMeta := nestedMap(t, crDef, "metadata")
+	if crMeta["name"] != "kubevirt.io:admin" {
+		t.Fatalf("unexpected ClusterRole name: %v", crMeta["name"])
 	}
 }
 

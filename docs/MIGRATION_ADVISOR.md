@@ -92,6 +92,20 @@ Health checks Thanos connectivity through `ObservabilityClient.CheckHealth()`.
 - `200` when Thanos query endpoint is reachable
 - `503` when Thanos is unreachable/unhealthy
 
+### `GET /api/v1/proxy-cclm/health`
+
+Readiness for proxy CCLM CA exchange: hub `mtv-integrations` namespace and lease **get** RBAC. No Bearer token. **`200`** / `ok`, or **`503`** on failure.
+
+### `POST /api/v1/proxy-cclm/ca-exchange`
+
+Proxy CCLM **KubeVirt CA exchange** (separate handler in `controllers/cclmca/`). Same listener, port, and Bearer authorization model as migration targets.
+
+**Caller RBAC:** hub **`UserPermission`** **`acm-vm-fleet:admin`** + **`kubevirt.io:admin`** (bindings for both request clusters); MRA + proxy-cclm **ConfigurationPolicy** on spokes — see [CCLM CA exchange — Authorization](CCLM_CA_EXCHANGE_API.md#authorization).
+
+**Preflight:** both `clusterA` and `clusterB` must be hub `ManagedCluster` objects labeled **`acm/proxy-cclm=true`**. If either is not, **HTTP 400** / **`PROXY_CCLM_NOT_ENABLED`** (see [missing label examples](CCLM_CA_EXCHANGE_API.md#missing-acmproxy-cclm-label)).
+
+Full request/response contract, error codes, and curl examples: **[CCLM CA exchange API](CCLM_CA_EXCHANGE_API.md)**.
+
 ## Data Flow
 
 Advisor handler runs two branches in parallel:
@@ -176,4 +190,4 @@ This target starts:
 - fake Thanos server
 - instrumented `mtv_integrations_instrumented` process
 
-Then executes only `migration_advisor`-labeled specs.
+Then executes `migration_advisor` and `cclm_ca_exchange` specs (same advisor HTTP server on port 8082).
