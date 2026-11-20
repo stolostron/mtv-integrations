@@ -169,7 +169,7 @@ POST /api/v1/proxy-cclm/ca-exchange  (Bearer token)
   → GET ManagedCluster clusterA, clusterB on hub
   → Require label acm/proxy-cclm=true on each
   → Spoke clients: caller Bearer token; API URL/CA from ManagedCluster and/or mtv-integrations/<cluster>-mtv (not the Secret token)
-  → Read kubevirt-ca on both spokes; merge trust via kubevirt-external-ca
-  → Hub Leases serialize concurrent exchanges per cluster
+  → Read kubevirt-ca; optional clearKubevirtCA (POST body) then CNV refresh on spokes that need writes
+  → Merge trust via kubevirt-external-ca; hub Leases serialize concurrent exchanges per cluster
   → Return per-cluster verification status (or 400/409/502/504)
 ```

@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/pem"
+	"strings"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
@@ -35,6 +36,8 @@ type fakeSpoke struct {
 	onUpdateExternal func(cluster string)
 	conflictNext     bool
 	disableMerge     bool
+	// operatorCA is republished into kubevirt-ca after a clear (simulate CNV operator).
+	operatorCA string
 }
 
 func newFakeSpoke(initial map[string]map[string]string) *fakeSpoke {
@@ -99,8 +102,19 @@ func (f *fakeSpoke) PatchConfigMap(
 	}
 	out.ResourceVersion = existing.ResourceVersion + "+1"
 	f.cms[key] = out
+	f.maybeRefreshKubevirtCA(out)
 	f.maybeMergeExternal(out)
 	return out.DeepCopy(), nil
+}
+
+func (f *fakeSpoke) maybeRefreshKubevirtCA(cm *corev1.ConfigMap) {
+	if cm.Name != kubevirtCAConfigMapName || f.operatorCA == "" {
+		return
+	}
+	if strings.TrimSpace(cm.Data[caBundleDataKey]) != "" {
+		return
+	}
+	cm.Data[caBundleDataKey] = f.operatorCA
 }
 
 func (f *fakeSpoke) maybeMergeExternal(cm *corev1.ConfigMap) {

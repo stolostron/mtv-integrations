@@ -195,6 +195,94 @@ func readCABundle(cm *corev1.ConfigMap) ([]byte, error) {
 // The API updates an existing ConfigMap only; operators must create it (KubeVirt CCLM setup).
 var errKubevirtExternalCANotFound = errors.New("kubevirt-external-ca ConfigMap not found")
 
+func patchKubevirtCABundle(
+	ctx context.Context,
+	client SpokeConfigMapClient,
+	namespace string,
+	bundle []byte,
+) error {
+	cm, err := client.GetConfigMap(ctx, namespace, kubevirtCAConfigMapName)
+	if err != nil {
+		return err
+	}
+	patch, err := json.Marshal(map[string]interface{}{
+		mergePatchMetadataKey: map[string]interface{}{
+			"resourceVersion": cm.ResourceVersion,
+		},
+		"data": map[string]string{caBundleDataKey: string(bundle)},
+	})
+	if err != nil {
+		return fmt.Errorf("marshal kubevirt-ca patch: %w", err)
+	}
+	_, err = client.PatchConfigMap(ctx, namespace, kubevirtCAConfigMapName, types.MergePatchType, patch)
+	if apierrors.IsConflict(err) {
+		return fmt.Errorf("%w: %v", errConfigMapConflict, err)
+	}
+	return err
+}
+
+// ensureSinglePrimaryCA clears an oversized kubevirt-ca ca-bundle, then waits for the CNV operator
+// to publish a fresh single-certificate bundle before kubevirt-external-ca is written.
+func ensureSinglePrimaryCA(
+	ctx context.Context,
+	client SpokeConfigMapClient,
+	namespace string,
+	timeout time.Duration,
+) error {
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	clearIssued := false
+	for {
+		bundle, err := readClusterCABundle(ctx, client, namespace)
+		if err != nil {
+			return err
+		}
+		count, err := certificateCount(bundle)
+		if err != nil {
+			return err
+		}
+		if count == 1 {
+			return nil
+		}
+		if count > 1 && !clearIssued {
+			if err := patchKubevirtCABundle(ctx, client, namespace, nil); err != nil {
+				if errors.Is(err, errConfigMapConflict) {
+					if waitErr := waitTickOrDone(waitCtx, ticker); waitErr != nil {
+						return waitErr
+					}
+					continue
+				}
+				return err
+			}
+			clearIssued = true
+		}
+		if waitErr := waitTickOrDone(waitCtx, ticker); waitErr != nil {
+			if errors.Is(waitErr, context.DeadlineExceeded) {
+				if count > 1 {
+					return fmt.Errorf(
+						"%w: kubevirt-ca still has %d certificates after clear; CNV operator did not reconcile to one",
+						waitErr, count,
+					)
+				}
+				return fmt.Errorf("%w: kubevirt-ca empty; waiting for CNV operator to publish fresh CA bundle", waitErr)
+			}
+			return waitErr
+		}
+	}
+}
+
+func waitTickOrDone(ctx context.Context, ticker *time.Ticker) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-ticker.C:
+		return nil
+	}
+}
+
 func upsertExternalCABundle(
 	ctx context.Context,
 	client SpokeConfigMapClient,

@@ -287,6 +287,7 @@ curl -sS -X POST "${ADVISOR}/api/v1/proxy-cclm/ca-exchange" \
   -H "Authorization: Bearer $(oc whoami -t)" \
   -H "Content-Type: application/json" \
   -d '{"clusterA":"<cluster-a>","clusterB":"<cluster-b>"}'
+# Optional: "clearKubevirtCA": true — clears oversized kubevirt-ca and waits for CNV (destructive); see docs/CCLM_CA_EXCHANGE_API.md
 ```
 
 If **either** cluster lacks **`acm/proxy-cclm=true`**, the API returns **HTTP 400** with JSON **`status: failed`**, **`code: PROXY_CCLM_NOT_ENABLED`**, and a **`message`** naming the first failing cluster (`clusterA` checked before `clusterB`). No spoke ConfigMaps are touched. Examples: **[`docs/CCLM_CA_EXCHANGE_API.md` — Missing label](CCLM_CA_EXCHANGE_API.md#missing-acmproxy-cclm-label)**.

@@ -21,6 +21,10 @@ type CACLMExchangeRequest struct {
 	ClusterA          string `json:"clusterA"`
 	ClusterB          string `json:"clusterB"`
 	KubeVirtNamespace string `json:"kubeVirtNamespace,omitempty"`
+	// ClearKubevirtCA, when true and a spoke needs a write, clears kubevirt-ca ca-bundle once so the CNV
+	// operator can republish a single certificate before peer material is written to kubevirt-external-ca.
+	// Destructive: removes peer CAs on that spoke until the operator reconciles. Default false.
+	ClearKubevirtCA bool `json:"clearKubevirtCA,omitempty"`
 }
 
 // CACLMExchangeWarning describes a non-fatal condition after a successful exchange.

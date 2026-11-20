@@ -18,7 +18,7 @@ Unauthenticated readiness check for the CA exchange feature on the same listener
 
 `GET /health` on the advisor still checks **Thanos** for migration targets only.
 
-The advisor HTTP server uses a **90s** write timeout so verification polling (up to **30s**) and spoke/hub I/O can complete. Callers should use a similar client timeout for exchange requests that perform writes.
+The advisor HTTP server uses a **150s** write timeout (up to **30s** clear per spoke when `clearKubevirtCA` is true, **30s** verify, plus I/O). Use a similar client timeout for exchange requests that perform writes or optional clear.
 
 ## Prerequisites
 
@@ -97,7 +97,7 @@ On **`acm/proxy-cclm=true`** clusters, the proxy-cclm addon **ConfigurationPolic
 
 | ConfigMap | Verbs |
 |-----------|-------|
-| `kubevirt-ca` | get, list, watch |
+| `kubevirt-ca` | get, list, watch, update, patch |
 | `kubevirt-external-ca` | get, list, watch, update, patch |
 
 If a spoke is missing from the placement, lacks **`acm/proxy-cclm=true`** (no CA rules on **`kubevirt.io:admin`**), or the subject lacks **`kubevirt.io:admin`** in **`openshift-cnv`**, the hub accepts the request (fleet `UserPermission` OK) but the call fails on that spoke with **403/502**.
@@ -142,11 +142,18 @@ Add a **separate** hub MRA (or existing fleet-admin binding) so the same subject
 {
   "clusterA": "cnv-1",
   "clusterB": "cnv-2",
-  "kubeVirtNamespace": "openshift-cnv"
+  "kubeVirtNamespace": "openshift-cnv",
+  "clearKubevirtCA": false
 }
 ```
 
-Verification polling uses a **fixed 30s** timeout (not configurable on the request). Hub exchange **leases** use a **120s** TTL so the lock outlives verification under normal operation.
+| Field | Required | Description |
+|-------|----------|-------------|
+| `clusterA`, `clusterB` | yes | Hub `ManagedCluster` names |
+| `kubeVirtNamespace` | no | Default `openshift-cnv` |
+| `clearKubevirtCA` | no | Default **`false`**. When **`true`** and a spoke needs a write, clear `kubevirt-ca` `ca-bundle` once and wait for CNV to republish a **single** certificate before writing `kubevirt-external-ca`. **Destructive** on that spoke (drops peer CAs until the operator reconciles); use when bundles are large or stale, not for routine pairwise exchange on shared meshes. |
+
+Verification polling uses a **fixed 30s** timeout (not configurable on the request). Hub exchange **leases** use a **120s** TTL so the lock outlives verification under normal operation. **`clearKubevirtCA`** can use up to **30s per spoke** that needs a write (same window).
 
 `clusterA` and `clusterB` are hub `ManagedCluster` **metadata.name** values (not MTV provider suffixes).
 
@@ -169,7 +176,8 @@ curl -sS -X POST "${ADVISOR}/api/v1/proxy-cclm/ca-exchange" \
 2. Authorize caller for both clusters.
 3. **Preflight:** GET each `ManagedCluster`; require `acm/proxy-cclm=true`.
 4. Build spoke Kubernetes clients with the **caller's bearer token** (API URL/CA from hub Secret or ManagedCluster).
-5. Read `kubevirt-ca`, decide bidirectional trust, acquire hub Leases, write `kubevirt-external-ca` when needed, poll until `kubevirt-ca` reflects trust (or return timeout).
+5. Read `kubevirt-ca`, decide bidirectional trust. If **`clearKubevirtCA`** is **`true`** and a spoke needs a write: with **more than one** certificate in `ca-bundle`, **clear `kubevirt-ca`** once, then poll until CNV leaves **exactly one** certificate (up to 30s per spoke). Omitted or **`false`**: skip clear (full peer `kubevirt-ca` may be copied to `kubevirt-external-ca` as today).
+6. Acquire hub Leases, write peer material to `kubevirt-external-ca` when needed, poll until `kubevirt-ca` reflects trust (or return timeout).
 
 ## Success (already trusted)
 
@@ -290,9 +298,9 @@ The controller calls each spoke’s **Kubernetes API as the API caller** (`Autho
 
 The caller must have spoke RBAC to the ConfigMaps. Spoke **403** returns **`FORBIDDEN`** with remediation text (kubevirt.io:admin MRA, UserPermission checks); other spoke API failures return **`CLUSTER_UNREACHABLE`** / 502. **Forklift `Provider` CRs** are unrelated.
 
-Spoke API URLs must use **`https`**. On the spoke the implementation **GET**s `kubevirt-ca` and **PATCH**es existing `kubevirt-external-ca` only (no create):
+Spoke API URLs must use **`https`**. On the spoke the implementation **GET**s `kubevirt-ca`, optionally **PATCH**es it when **`clearKubevirtCA`** is true, and **PATCH**es existing `kubevirt-external-ca` only (no create):
 
-- `ConfigMap/kubevirt-ca` (read)
+- `ConfigMap/kubevirt-ca` (read; optional clear when `clearKubevirtCA` is true and more than one cert)
 - `ConfigMap/kubevirt-external-ca` (patch `ca-bundle`)
 
 Default namespace is `openshift-cnv` (override with `kubeVirtNamespace` or controller env `MTV_KUBEVIRT_NAMESPACE`).
@@ -314,12 +322,13 @@ Hub `coordination.k8s.io/Lease` objects in **`mtv-integrations`** (`proxy-cclm-c
 | `CA_ALREADY_TRUSTED` | 200 | No write required |
 | `CA_EXCHANGE_IN_PROGRESS` | 409 | Lock held or `kubevirt-external-ca` pending |
 | `CLUSTER_UNREACHABLE` | 502 | Secret, API, or ConfigMap failure (non-RBAC; does not include spoke **403** — see `FORBIDDEN`) |
+| `KUBEVIRT_CA_CLEANUP_TIMEOUT` | 504 | CNV operator did not refresh `kubevirt-ca` to a single certificate after clear |
 | `VERIFY_TIMEOUT` | 504 | Trust not observed in `kubevirt-ca` in time |
 | `VERIFY_PARTIAL` | 504 | One cluster verified, the other did not |
 | `CA_ROTATED_DURING_EXCHANGE` | 409 | Source `kubevirt-ca` changed during operation |
 | `KUBEVIRT_CA_NEAR_LIMIT` | 200 (warning) | More than 45 certs in `kubevirt-ca` |
 
-KubeVirt operator owns merge, expiry, and cleanup of `kubevirt-ca`. ACM only writes `kubevirt-external-ca`.
+KubeVirt/CNV operator owns the authoritative CA in `kubevirt-ca`. Optional request flag **`clearKubevirtCA`** (default **false**) triggers one-time `kubevirt-ca` clear and operator refresh before `kubevirt-external-ca` writes; otherwise ACM only patches `kubevirt-external-ca`.
 
 ### Spoke RBAC denied (`FORBIDDEN` / 403)
 

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/stolostron/mtv-integrations/api"
@@ -30,9 +31,10 @@ import (
 )
 
 const (
-	CodeExchangeInProgress = "CA_EXCHANGE_IN_PROGRESS"
-	CodeAlreadyTrusted     = "CA_ALREADY_TRUSTED"
-	codeVerifyTimeout      = "VERIFY_TIMEOUT"
+	CodeExchangeInProgress   = "CA_EXCHANGE_IN_PROGRESS"
+	CodeAlreadyTrusted       = "CA_ALREADY_TRUSTED"
+	codeKubevirtCACleanup    = "KUBEVIRT_CA_CLEANUP_TIMEOUT"
+	codeVerifyTimeout        = "VERIFY_TIMEOUT"
 	statusFailed           = "failed"
 	nearLimitMessage       = "The kubevirt-ca ConfigMap contains %d certificates and is approaching " +
 		"the KubeVirt CA bundle limit. Review the bundle and follow the supported KubeVirt cleanup procedure."
@@ -40,9 +42,12 @@ const (
 	pollInterval         = time.Second
 )
 
+// advisorWriteHeadroom covers lease acquisition and spoke/hub I/O beyond poll windows.
+const advisorWriteHeadroom = 60 * time.Second
+
 // AdvisorHTTPWriteTimeout is the migration advisor server WriteTimeout. It must exceed
-// verification polling plus hub/spoke I/O and lock acquisition.
-const AdvisorHTTPWriteTimeout = defaultVerifyTimeout + 60*time.Second
+// up to two clearKubevirtCA polls (one per spoke), verification, plus I/O.
+const AdvisorHTTPWriteTimeout = 3*defaultVerifyTimeout + advisorWriteHeadroom
 
 // verifyTimeoutForTests shortens verification polling in unit tests only.
 var verifyTimeoutForTests time.Duration
@@ -130,6 +135,42 @@ func (e *Exchanger) Exchange(ctx context.Context, req api.CACLMExchangeRequest) 
 		resp.Message = "Both clusters already trust each other's kubevirt-ca bundles"
 		e.finalizeResponse(ctx, resp, clientA, clientB, ns, true, true)
 		return resp, 200
+	}
+
+	if req.ClearKubevirtCA {
+		if needWriteA {
+			if err := ensureSinglePrimaryCA(ctx, clientA, ns, timeout); err != nil {
+				log.Error(err, "clear kubevirt-ca for operator refresh", "cluster", req.ClusterA)
+				if resp, code := cleanupErrorResponse(req.ClusterA, err); code != 0 {
+					return resp, code
+				}
+				return clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterA, err)
+			}
+		}
+		if needWriteB {
+			if err := ensureSinglePrimaryCA(ctx, clientB, ns, timeout); err != nil {
+				log.Error(err, "clear kubevirt-ca for operator refresh", "cluster", req.ClusterB)
+				if resp, code := cleanupErrorResponse(req.ClusterB, err); code != 0 {
+					return resp, code
+				}
+				return clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterB, err)
+			}
+		}
+
+		caA, err = readClusterCABundle(ctx, clientA, ns)
+		if err != nil {
+			return clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterA, err)
+		}
+		caB, err = readClusterCABundle(ctx, clientB, ns)
+		if err != nil {
+			return clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterB, err)
+		}
+		if err := requireNonemptyCABundle(caA); err != nil {
+			return clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterA, err)
+		}
+		if err := requireNonemptyCABundle(caB); err != nil {
+			return clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterB, err)
+		}
 	}
 
 	if resp, code := e.preflightExternalCA(ctx, clientA, clientB, ns, req, needWriteA, needWriteB); code != 0 {
@@ -328,6 +369,15 @@ func countCABundle(ctx context.Context, client SpokeConfigMapClient, ns string) 
 
 func failResponse(code, msg string) *api.CACLMExchangeResponse {
 	return &api.CACLMExchangeResponse{Status: statusFailed, Code: code, Message: msg}
+}
+
+func cleanupErrorResponse(cluster string, err error) (*api.CACLMExchangeResponse, int) {
+	if !errors.Is(err, context.DeadlineExceeded) {
+		return nil, 0
+	}
+	return failResponse(codeKubevirtCACleanup,
+			fmt.Sprintf("cluster %q: timed out waiting for CNV operator to refresh kubevirt-ca to a single CA", cluster)),
+		http.StatusGatewayTimeout
 }
 
 func clusterError(cluster string, err error) *api.CACLMExchangeResponse {

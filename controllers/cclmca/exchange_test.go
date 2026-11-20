@@ -94,6 +94,31 @@ func TestExchangeBidirectional(t *testing.T) {
 	}
 }
 
+func TestExchangeClearKubevirtCA(t *testing.T) {
+	caOwnA := testCertPEM(t, "own-a")
+	caPeerExtra := testCertPEM(t, "stale-peer")
+	caA := string(append(append([]byte(nil), caOwnA...), caPeerExtra...))
+	caB := string(testCertPEM(t, "b"))
+	a := newFakeSpoke(map[string]map[string]string{"openshift-cnv": {
+		kubevirtCAConfigMapName: caA, kubevirtExternalCAConfigMapName: "",
+	}})
+	a.operatorCA = string(caOwnA)
+	b := newFakeSpoke(map[string]map[string]string{"openshift-cnv": {
+		kubevirtCAConfigMapName: caB, kubevirtExternalCAConfigMapName: "",
+	}})
+
+	setTestVerifyTimeout(t, 5*time.Second)
+	ex := testExchanger(a, b)
+	resp, code := ex.Exchange(context.Background(), api.CACLMExchangeRequest{
+		ClusterA:        "cluster-a",
+		ClusterB:        "cluster-b",
+		ClearKubevirtCA: true,
+	})
+	if code != 200 || resp.Status != "success" {
+		t.Fatalf("code=%d resp=%+v", code, resp)
+	}
+}
+
 func TestExchangeExternalCAPending(t *testing.T) {
 	caA := string(testCertPEM(t, "a"))
 	caB := string(testCertPEM(t, "b"))
