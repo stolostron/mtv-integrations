@@ -29,6 +29,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2" //nolint:revive // Ginkgo tests conventionally use dot imports.
@@ -60,6 +61,8 @@ var _ = Describe("Proxy CCLM CA exchange API", Label("cclm_ca_exchange"), Ordere
 
 		clusterA = "ca-spoke-a"
 		clusterB = "ca-spoke-b"
+		kubevirtNsB          = "openshift-cnv-ca-b"
+		externalCAName       = "kubevirt-external-ca"
 
 		caExchangeSAName      = "ca-exchange-e2e-sa"
 		caExchangeSANamespace = "default"
@@ -150,6 +153,100 @@ var _ = Describe("Proxy CCLM CA exchange API", Label("cclm_ca_exchange"), Ordere
 		expectNoErr(err, "patch ManagedCluster "+name+" client URL")
 		_, err = dynamicClientHub.Resource(gvr).Update(ctx, mc, metav1.UpdateOptions{})
 		expectNoErr(err, "update ManagedCluster "+name)
+	}
+
+	upsertKubeVirtCAInNS := func(ctx context.Context, namespace, bundle string) {
+		desired := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: kubevirtCAName, Namespace: namespace},
+			Data:       map[string]string{caBundleKey: bundle},
+		}
+		_, err := clientHub.CoreV1().ConfigMaps(namespace).Get(ctx, kubevirtCAName, metav1.GetOptions{})
+		if err == nil {
+			_, err = clientHub.CoreV1().ConfigMaps(namespace).Update(ctx, desired, metav1.UpdateOptions{})
+		} else if apierrors.IsNotFound(err) {
+			_, err = clientHub.CoreV1().ConfigMaps(namespace).Create(ctx, desired, metav1.CreateOptions{})
+		}
+		expectNoErr(err, "upsert kubevirt-ca ConfigMap in "+namespace)
+	}
+
+	ensureKubevirtExternalCA := func(ctx context.Context, namespace string) {
+		desired := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: externalCAName, Namespace: namespace},
+			Data:       map[string]string{caBundleKey: ""},
+		}
+		_, err := clientHub.CoreV1().ConfigMaps(namespace).Get(ctx, externalCAName, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			_, err = clientHub.CoreV1().ConfigMaps(namespace).Create(ctx, desired, metav1.CreateOptions{})
+		}
+		expectNoErr(err, "ensure "+externalCAName+" in "+namespace)
+	}
+
+	mergeTestCABundles := func(existing, added string) string {
+		seen := map[string]struct{}{}
+		var out string
+		for _, b := range []string{existing, added} {
+			rest := []byte(b)
+			for len(rest) > 0 {
+				var block *pem.Block
+				block, rest = pem.Decode(rest)
+				if block == nil || block.Type != "CERTIFICATE" {
+					break
+				}
+				cert, err := x509.ParseCertificate(block.Bytes)
+				if err != nil {
+					continue
+				}
+				fp := fmt.Sprintf("%x", cert.Raw)
+				if _, ok := seen[fp]; ok {
+					continue
+				}
+				seen[fp] = struct{}{}
+				out += string(pem.EncodeToMemory(block))
+			}
+		}
+		return out
+	}
+
+	startCNVSimulator := func(ctx context.Context, primaryByNS map[string]string) context.CancelFunc {
+		simCtx, cancel := context.WithCancel(ctx)
+		go func() {
+			ticker := time.NewTicker(200 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-simCtx.Done():
+					return
+				case <-ticker.C:
+					for ns, primary := range primaryByNS {
+						caCM, err := clientHub.CoreV1().ConfigMaps(ns).Get(simCtx, kubevirtCAName, metav1.GetOptions{})
+						if err != nil {
+							continue
+						}
+						if strings.TrimSpace(caCM.Data[caBundleKey]) == "" {
+							caCM.Data[caBundleKey] = primary
+							_, _ = clientHub.CoreV1().ConfigMaps(ns).Update(simCtx, caCM, metav1.UpdateOptions{})
+							continue
+						}
+						extCM, err := clientHub.CoreV1().ConfigMaps(ns).Get(simCtx, externalCAName, metav1.GetOptions{})
+						if err != nil {
+							continue
+						}
+						extBundle := strings.TrimSpace(extCM.Data[caBundleKey])
+						if extBundle == "" {
+							continue
+						}
+						merged := mergeTestCABundles(caCM.Data[caBundleKey], extBundle)
+						caCM.Data[caBundleKey] = merged
+						extCM.Data[caBundleKey] = ""
+						if _, err := clientHub.CoreV1().ConfigMaps(ns).Update(simCtx, caCM, metav1.UpdateOptions{}); err != nil {
+							continue
+						}
+						_, _ = clientHub.CoreV1().ConfigMaps(ns).Update(simCtx, extCM, metav1.UpdateOptions{})
+					}
+				}
+			}
+		}()
+		return cancel
 	}
 
 	upsertKubeVirtCA := func(ctx context.Context, bundle string) {
@@ -347,6 +444,44 @@ var _ = Describe("Proxy CCLM CA exchange API", Label("cclm_ca_exchange"), Ordere
 		Expect(body.Code).To(Equal("CA_ALREADY_TRUSTED"))
 		Expect(body.ClusterA).NotTo(BeNil())
 		Expect(body.ClusterB).NotTo(BeNil())
+		Expect(body.ClusterA.CAVerified).To(BeTrue(), "cluster A verified")
+		Expect(body.ClusterB.CAVerified).To(BeTrue(), "cluster B verified")
+	})
+
+	It("exchanges with clearKubevirtCA using per-cluster kubevirt namespaces", func() {
+		ctx := GinkgoT().Context()
+		caA := generateCAPEM("clear-e2e-a")
+		caB := generateCAPEM("clear-e2e-b")
+		stale := generateCAPEM("clear-e2e-stale")
+
+		ensureNamespace(ctx, kubevirtNsB)
+		bundleA := string(caA) + string(stale)
+		bundleB := string(caB)
+
+		upsertKubeVirtCAInNS(ctx, kubevirtNs, bundleA)
+		upsertKubeVirtCAInNS(ctx, kubevirtNsB, bundleB)
+		ensureKubevirtExternalCA(ctx, kubevirtNs)
+		ensureKubevirtExternalCA(ctx, kubevirtNsB)
+
+		stopSim := startCNVSimulator(ctx, map[string]string{
+			kubevirtNs:  string(caA),
+			kubevirtNsB: bundleB,
+		})
+		defer stopSim()
+
+		resp, body := postExchange(authClient, api.CACLMExchangeRequest{
+			ClusterA:                  clusterA,
+			ClusterB:                  clusterB,
+			ClearKubevirtCA:           true,
+			ClusterAKubeVirtNamespace: kubevirtNs,
+			ClusterBKubeVirtNamespace: kubevirtNsB,
+		})
+		Expect(resp.StatusCode).To(Equal(http.StatusOK), fmt.Sprintf("body=%+v", body))
+		Expect(body.Status).To(Equal("success"), "exchange status")
+		Expect(body.ClusterA).NotTo(BeNil())
+		Expect(body.ClusterB).NotTo(BeNil())
+		Expect(body.ClusterA.WritePerformed).To(BeTrue(), "cluster A exchange write")
+		Expect(body.ClusterB.WritePerformed).To(BeTrue(), "cluster B exchange write")
 		Expect(body.ClusterA.CAVerified).To(BeTrue(), "cluster A verified")
 		Expect(body.ClusterB.CAVerified).To(BeTrue(), "cluster B verified")
 	})

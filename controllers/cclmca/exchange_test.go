@@ -94,6 +94,82 @@ func TestExchangeBidirectional(t *testing.T) {
 	}
 }
 
+func TestExchangeClearKubevirtCATimeout(t *testing.T) {
+	caOwnA := testCertPEM(t, "own-a")
+	caPeerExtra := testCertPEM(t, "stale-peer")
+	caA := string(append(append([]byte(nil), caOwnA...), caPeerExtra...))
+	caB := string(testCertPEM(t, "b"))
+	a := newFakeSpoke(map[string]map[string]string{"openshift-cnv": {
+		kubevirtCAConfigMapName: caA, kubevirtExternalCAConfigMapName: "",
+	}})
+	b := newFakeSpoke(map[string]map[string]string{"openshift-cnv": {
+		kubevirtCAConfigMapName: caB, kubevirtExternalCAConfigMapName: "",
+	}})
+
+	setTestVerifyTimeout(t, 50*time.Millisecond)
+	ex := testExchanger(a, b)
+	resp, code := ex.Exchange(context.Background(), api.CACLMExchangeRequest{
+		ClusterA:        "cluster-a",
+		ClusterB:        "cluster-b",
+		ClearKubevirtCA: true,
+	})
+	if code != 504 || resp.Code != codeKubevirtCACleanup {
+		t.Fatalf("code=%d resp=%+v", code, resp)
+	}
+}
+
+func TestExchangeClearKubevirtCATimeoutClusterB(t *testing.T) {
+	caA := testCertPEM(t, "a")
+	caB := testCertPEM(t, "b")
+	stale := testCertPEM(t, "stale-b")
+	trustA := string(append(caA, caB...))
+	caBMulti := string(append(append([]byte(nil), caB...), stale...))
+	a := newFakeSpoke(map[string]map[string]string{"openshift-cnv": {
+		kubevirtCAConfigMapName: trustA, kubevirtExternalCAConfigMapName: "",
+	}})
+	b := newFakeSpoke(map[string]map[string]string{"openshift-cnv": {
+		kubevirtCAConfigMapName: caBMulti, kubevirtExternalCAConfigMapName: "",
+	}})
+
+	setTestVerifyTimeout(t, 50*time.Millisecond)
+	ex := testExchanger(a, b)
+	resp, code := ex.Exchange(context.Background(), api.CACLMExchangeRequest{
+		ClusterA:        "cluster-a",
+		ClusterB:        "cluster-b",
+		ClearKubevirtCA: true,
+	})
+	if code != 504 || resp.Code != codeKubevirtCACleanup {
+		t.Fatalf("code=%d resp=%+v", code, resp)
+	}
+}
+
+func TestExchangePerClusterKubeVirtNamespaces(t *testing.T) {
+	const nsA, nsB = "cnv-namespace-a", "cnv-namespace-b"
+	caA := string(testCertPEM(t, "a"))
+	caB := string(testCertPEM(t, "b"))
+	a := newFakeSpoke(map[string]map[string]string{nsA: {
+		kubevirtCAConfigMapName: caA, kubevirtExternalCAConfigMapName: "",
+	}})
+	b := newFakeSpoke(map[string]map[string]string{nsB: {
+		kubevirtCAConfigMapName: caB, kubevirtExternalCAConfigMapName: "",
+	}})
+
+	setTestVerifyTimeout(t, 5*time.Second)
+	ex := testExchanger(a, b)
+	resp, code := ex.Exchange(context.Background(), api.CACLMExchangeRequest{
+		ClusterA:                  "cluster-a",
+		ClusterB:                  "cluster-b",
+		ClusterAKubeVirtNamespace: nsA,
+		ClusterBKubeVirtNamespace: nsB,
+	})
+	if code != 200 || resp.Status != "success" {
+		t.Fatalf("code=%d resp=%+v", code, resp)
+	}
+	if !resp.ClusterA.CAVerified || !resp.ClusterB.CAVerified {
+		t.Fatal("expected verified")
+	}
+}
+
 func TestExchangeClearKubevirtCA(t *testing.T) {
 	caOwnA := testCertPEM(t, "own-a")
 	caPeerExtra := testCertPEM(t, "stale-peer")
@@ -238,6 +314,30 @@ func TestCertCount45NoWarning(t *testing.T) {
 	resp, code := ex.Exchange(context.Background(), api.CACLMExchangeRequest{ClusterA: "cluster-a", ClusterB: "cluster-b"})
 	if code != 200 || len(resp.Warnings) != 0 {
 		t.Fatalf("expected no warning code=%d warnings=%v", code, resp.Warnings)
+	}
+}
+
+func TestExchangeVerifyPartialClusterA(t *testing.T) {
+	caA := string(testCertPEM(t, "a"))
+	caB := string(testCertPEM(t, "b"))
+	a := newFakeSpoke(map[string]map[string]string{"openshift-cnv": {
+		kubevirtCAConfigMapName: caA, kubevirtExternalCAConfigMapName: "",
+	}})
+	b := newFakeSpoke(map[string]map[string]string{"openshift-cnv": {
+		kubevirtCAConfigMapName: caB, kubevirtExternalCAConfigMapName: "",
+	}})
+	b.disableMerge = true
+
+	setTestVerifyTimeout(t, 1500*time.Millisecond)
+	ex := testExchanger(a, b)
+	resp, code := ex.Exchange(context.Background(), api.CACLMExchangeRequest{
+		ClusterA: "cluster-a", ClusterB: "cluster-b",
+	})
+	if code != 504 || resp.Code != "VERIFY_PARTIAL" {
+		t.Fatalf("code=%d resp=%+v", code, resp)
+	}
+	if !resp.ClusterA.CAVerified || resp.ClusterB.CAVerified {
+		t.Fatalf("expected A verified only: %+v", resp)
 	}
 }
 

@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stolostron/mtv-integrations/api"
 	"github.com/stolostron/mtv-integrations/controllers"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -63,6 +64,21 @@ func KubeVirtNamespace(override string) string {
 		return ns
 	}
 	return defaultKubeVirtNamespace
+}
+
+// KubeVirtNamespaceForCluster returns the ConfigMap namespace for a named cluster in the exchange request.
+func KubeVirtNamespaceForCluster(req api.CACLMExchangeRequest, cluster string) string {
+	switch cluster {
+	case req.ClusterA:
+		if ns := strings.TrimSpace(req.ClusterAKubeVirtNamespace); ns != "" {
+			return ns
+		}
+	case req.ClusterB:
+		if ns := strings.TrimSpace(req.ClusterBKubeVirtNamespace); ns != "" {
+			return ns
+		}
+	}
+	return KubeVirtNamespace(req.KubeVirtNamespace)
 }
 
 type spokeClient struct {

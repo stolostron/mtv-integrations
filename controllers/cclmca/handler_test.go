@@ -27,8 +27,45 @@ import (
 	"github.com/stolostron/mtv-integrations/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 )
+
+func TestNewHandler(t *testing.T) {
+	h := NewHandler(nil, &rest.Config{Host: "http://unused"}, fake.NewSimpleClientset())
+	require.NotNil(t, h.Exchanger)
+	require.NotNil(t, h.Exchanger.Factory)
+}
+
+func TestHandler_InvalidJSON(t *testing.T) {
+	up := fakeUserPermissionServer(map[string][]string{
+		"acm-vm-fleet:admin": {"local-cluster"},
+	})
+	defer up.Close()
+
+	h := NewHandler(nil, &rest.Config{Host: up.URL}, fake.NewSimpleClientset())
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{"))
+	req.Header.Set("Authorization", "Bearer test")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	var body api.CACLMExchangeResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "INVALID_REQUEST", body.Code)
+}
+
+func TestHandler_MethodNotAllowed(t *testing.T) {
+	h := &Handler{RestConfig: &rest.Config{Host: "http://unused"}}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusMethodNotAllowed, w.Code)
+	var body api.CACLMExchangeResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "METHOD_NOT_ALLOWED", body.Code)
+}
 
 func TestHandler_UnauthorizedJSON(t *testing.T) {
 	h := &Handler{RestConfig: &rest.Config{Host: "http://unused"}}
@@ -111,4 +148,40 @@ func TestHandler_ForbiddenJSON(t *testing.T) {
 	var body api.CACLMExchangeResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Equal(t, errCodeForbidden, body.Code)
+}
+
+func TestHandler_ExchangeSuccessWithPerClusterNamespaces(t *testing.T) {
+	up := fakeUserPermissionServer(map[string][]string{
+		"acm-vm-fleet:admin": {"local-cluster"},
+		"kubevirt.io:admin":  {"cluster-a", "cluster-b"},
+	})
+	defer up.Close()
+
+	ca := string(testCertPEM(t, "shared-handler"))
+	a := newFakeSpoke(map[string]map[string]string{"openshift-cnv": {kubevirtCAConfigMapName: ca}})
+	b := newFakeSpoke(map[string]map[string]string{"openshift-cnv": {kubevirtCAConfigMapName: ca}})
+
+	h := NewHandler(hubDynamicLabeled("cluster-a", "cluster-b"), &rest.Config{Host: up.URL}, fake.NewSimpleClientset())
+	h.SetSpokeFactory(func(ctx context.Context, cluster string) (SpokeConfigMapClient, error) {
+		switch cluster {
+		case "cluster-a":
+			return a, nil
+		case "cluster-b":
+			return b, nil
+		default:
+			return nil, context.Canceled
+		}
+	})
+
+	body := `{"clusterA":"cluster-a","clusterB":"cluster-b","clusterAKubeVirtNamespace":"openshift-cnv","clusterBKubeVirtNamespace":"openshift-cnv"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp api.CACLMExchangeResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "success", resp.Status)
+	assert.Equal(t, CodeAlreadyTrusted, resp.Code)
 }

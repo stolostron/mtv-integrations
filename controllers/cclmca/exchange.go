@@ -77,7 +77,8 @@ func (e *Exchanger) Exchange(ctx context.Context, req api.CACLMExchangeRequest) 
 		return resp, status
 	}
 
-	ns := KubeVirtNamespace(req.KubeVirtNamespace)
+	nsA := KubeVirtNamespaceForCluster(req, req.ClusterA)
+	nsB := KubeVirtNamespaceForCluster(req, req.ClusterB)
 	timeout := exchangeVerifyTimeout()
 
 	clientA, err := e.Factory(ctx, req.ClusterA)
@@ -91,12 +92,12 @@ func (e *Exchanger) Exchange(ctx context.Context, req api.CACLMExchangeRequest) 
 		return clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterB, err)
 	}
 
-	caA, err := readClusterCABundle(ctx, clientA, ns)
+	caA, err := readClusterCABundle(ctx, clientA, nsA)
 	if err != nil {
 		log.Error(err, "read kubevirt-ca", "cluster", req.ClusterA)
 		return clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterA, err)
 	}
-	caB, err := readClusterCABundle(ctx, clientB, ns)
+	caB, err := readClusterCABundle(ctx, clientB, nsB)
 	if err != nil {
 		log.Error(err, "read kubevirt-ca", "cluster", req.ClusterB)
 		return clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterB, err)
@@ -133,12 +134,12 @@ func (e *Exchanger) Exchange(ctx context.Context, req api.CACLMExchangeRequest) 
 	if !needWriteA && !needWriteB {
 		resp.Code = CodeAlreadyTrusted
 		resp.Message = "Both clusters already trust each other's kubevirt-ca bundles"
-		e.finalizeResponse(ctx, resp, clientA, clientB, ns, true, true)
+		e.finalizeResponse(ctx, resp, clientA, clientB, nsA, nsB, true, true)
 		return resp, 200
 	}
 
 	refreshedA, refreshedB, clearResp, clearCode := clearKubevirtCAIfRequested(
-		ctx, req, clientA, clientB, ns, needWriteA, needWriteB, timeout,
+		ctx, req, clientA, clientB, nsA, nsB, needWriteA, needWriteB, timeout,
 	)
 	if clearCode != 0 {
 		return clearResp, clearCode
@@ -147,7 +148,7 @@ func (e *Exchanger) Exchange(ctx context.Context, req api.CACLMExchangeRequest) 
 		caA, caB = refreshedA, refreshedB
 	}
 
-	if resp, code := e.preflightExternalCA(ctx, clientA, clientB, ns, req, needWriteA, needWriteB); code != 0 {
+	if resp, code := e.preflightExternalCA(ctx, clientA, clientB, nsA, nsB, req, needWriteA, needWriteB); code != 0 {
 		return resp, code
 	}
 
@@ -164,7 +165,7 @@ func (e *Exchanger) Exchange(ctx context.Context, req api.CACLMExchangeRequest) 
 	defer releaseAll(ctx, locks)
 
 	if needWriteA {
-		pending, err := checkExternalCAPending(ctx, clientA, ns)
+		pending, err := checkExternalCAPending(ctx, clientA, nsA)
 		if err != nil {
 			return clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterA, err)
 		}
@@ -173,7 +174,7 @@ func (e *Exchanger) Exchange(ctx context.Context, req api.CACLMExchangeRequest) 
 		}
 	}
 	if needWriteB {
-		pending, err := checkExternalCAPending(ctx, clientB, ns)
+		pending, err := checkExternalCAPending(ctx, clientB, nsB)
 		if err != nil {
 			return clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterB, err)
 		}
@@ -186,14 +187,14 @@ func (e *Exchanger) Exchange(ctx context.Context, req api.CACLMExchangeRequest) 
 	snapshotB := append([]byte(nil), caB...)
 
 	if needWriteA {
-		written, err := writeExternalBundle(ctx, clientA, ns, caB)
+		written, err := writeExternalBundle(ctx, clientA, nsA, caB)
 		if resp, code := mergeWriteErrorResponse(resp, req.ClusterA, err); code != 0 {
 			return resp, code
 		}
 		resp.ClusterA.WritePerformed = written
 	}
 	if needWriteB {
-		written, err := writeExternalBundle(ctx, clientB, ns, caA)
+		written, err := writeExternalBundle(ctx, clientB, nsB, caA)
 		if resp, code := mergeWriteErrorResponse(resp, req.ClusterB, err); code != 0 {
 			return resp, code
 		}
@@ -201,12 +202,12 @@ func (e *Exchanger) Exchange(ctx context.Context, req api.CACLMExchangeRequest) 
 	}
 
 	if needWriteA || needWriteB {
-		if resp, code := e.handleVerify(ctx, resp, clientA, clientB, ns, snapshotA, snapshotB, timeout); code != 0 {
+		if resp, code := e.handleVerify(ctx, resp, clientA, clientB, nsA, nsB, snapshotA, snapshotB, timeout); code != 0 {
 			return resp, code
 		}
 	}
 
-	e.finalizeResponse(ctx, resp, clientA, clientB, ns, resp.ClusterA.CAVerified, resp.ClusterB.CAVerified)
+	e.finalizeResponse(ctx, resp, clientA, clientB, nsA, nsB, resp.ClusterA.CAVerified, resp.ClusterB.CAVerified)
 	log.Info("CA exchange completed", "status", resp.Status,
 		"countA", resp.ClusterA.CertificateCount, "countB", resp.ClusterB.CertificateCount)
 	return resp, 200
@@ -216,7 +217,7 @@ func (e *Exchanger) handleVerify(
 	ctx context.Context,
 	resp *api.CACLMExchangeResponse,
 	clientA, clientB SpokeConfigMapClient,
-	ns string,
+	nsA, nsB string,
 	snapshotA, snapshotB []byte,
 	timeout time.Duration,
 ) (*api.CACLMExchangeResponse, int) {
@@ -224,7 +225,7 @@ func (e *Exchanger) handleVerify(
 	expectAInB, _ := expectedFingerprintsFromSource(snapshotA)
 
 	aVerified, bVerified, rotA, rotB, verr := verifyBidirectional(
-		ctx, clientA, clientB, ns,
+		ctx, clientA, clientB, nsA, nsB,
 		expectBInA, expectAInB,
 		snapshotA, snapshotB,
 		timeout,
@@ -238,7 +239,7 @@ func (e *Exchanger) handleVerify(
 		bVerifiedFinal := bVerified && !rotB && !rotA
 		resp.ClusterA.CAVerified = aVerifiedFinal
 		resp.ClusterB.CAVerified = bVerifiedFinal
-		e.finalizeResponse(ctx, resp, clientA, clientB, ns, aVerifiedFinal, bVerifiedFinal)
+		e.finalizeResponse(ctx, resp, clientA, clientB, nsA, nsB, aVerifiedFinal, bVerifiedFinal)
 		return resp, 409
 	}
 
@@ -246,7 +247,7 @@ func (e *Exchanger) handleVerify(
 	resp.ClusterB.CAVerified = bVerified
 
 	if verr != nil || !aVerified || !bVerified {
-		return e.verifyFailureResponse(ctx, resp, clientA, clientB, ns, aVerified, bVerified, verr)
+		return e.verifyFailureResponse(ctx, resp, clientA, clientB, nsA, nsB, aVerified, bVerified, verr)
 	}
 	return resp, 0
 }
@@ -255,7 +256,7 @@ func (e *Exchanger) verifyFailureResponse(
 	ctx context.Context,
 	resp *api.CACLMExchangeResponse,
 	clientA, clientB SpokeConfigMapClient,
-	ns string,
+	nsA, nsB string,
 	aVerified, bVerified bool,
 	verr error,
 ) (*api.CACLMExchangeResponse, int) {
@@ -263,14 +264,14 @@ func (e *Exchanger) verifyFailureResponse(
 		resp.Status = "partial"
 		resp.Code = "VERIFY_PARTIAL"
 		resp.Message = "Cluster A verified peer trust; cluster B verification timed out"
-		e.finalizeResponse(ctx, resp, clientA, clientB, ns, aVerified, bVerified)
+		e.finalizeResponse(ctx, resp, clientA, clientB, nsA, nsB, aVerified, bVerified)
 		return resp, 504
 	}
 	if bVerified && !aVerified {
 		resp.Status = "partial"
 		resp.Code = "VERIFY_PARTIAL"
 		resp.Message = "Cluster B verified peer trust; cluster A verification timed out"
-		e.finalizeResponse(ctx, resp, clientA, clientB, ns, aVerified, bVerified)
+		e.finalizeResponse(ctx, resp, clientA, clientB, nsA, nsB, aVerified, bVerified)
 		return resp, 504
 	}
 	resp.Status = "timeout"
@@ -280,7 +281,7 @@ func (e *Exchanger) verifyFailureResponse(
 	} else {
 		resp.Message = "Expected certificates were not observed in kubevirt-ca before timeout"
 	}
-	e.finalizeResponse(ctx, resp, clientA, clientB, ns, aVerified, bVerified)
+	e.finalizeResponse(ctx, resp, clientA, clientB, nsA, nsB, aVerified, bVerified)
 	return resp, 504
 }
 
@@ -288,16 +289,16 @@ func (e *Exchanger) finalizeResponse(
 	ctx context.Context,
 	resp *api.CACLMExchangeResponse,
 	clientA, clientB SpokeConfigMapClient,
-	ns string,
+	nsA, nsB string,
 	aVerified, bVerified bool,
 ) {
-	if n, err := countCABundle(ctx, clientA, ns); err == nil {
+	if n, err := countCABundle(ctx, clientA, nsA); err == nil {
 		resp.ClusterA.CertificateCount = n
 		if aVerified {
 			resp.ClusterA.CAVerified = true
 		}
 	}
-	if n, err := countCABundle(ctx, clientB, ns); err == nil {
+	if n, err := countCABundle(ctx, clientB, nsB); err == nil {
 		resp.ClusterB.CertificateCount = n
 		if bVerified {
 			resp.ClusterB.CAVerified = true
@@ -349,7 +350,7 @@ func clearKubevirtCAIfRequested(
 	ctx context.Context,
 	req api.CACLMExchangeRequest,
 	clientA, clientB SpokeConfigMapClient,
-	ns string,
+	nsA, nsB string,
 	needWriteA, needWriteB bool,
 	timeout time.Duration,
 ) (caA, caB []byte, resp *api.CACLMExchangeResponse, status int) {
@@ -358,7 +359,7 @@ func clearKubevirtCAIfRequested(
 	}
 	log := ctrl.LoggerFrom(ctx)
 	if needWriteA {
-		if err := ensureSinglePrimaryCA(ctx, clientA, ns, timeout); err != nil {
+		if err := ensureSinglePrimaryCA(ctx, clientA, nsA, timeout); err != nil {
 			log.Error(err, "clear kubevirt-ca for operator refresh", "cluster", req.ClusterA)
 			if resp, code := cleanupErrorResponse(req.ClusterA, err); code != 0 {
 				return nil, nil, resp, code
@@ -368,7 +369,7 @@ func clearKubevirtCAIfRequested(
 		}
 	}
 	if needWriteB {
-		if err := ensureSinglePrimaryCA(ctx, clientB, ns, timeout); err != nil {
+		if err := ensureSinglePrimaryCA(ctx, clientB, nsB, timeout); err != nil {
 			log.Error(err, "clear kubevirt-ca for operator refresh", "cluster", req.ClusterB)
 			if resp, code := cleanupErrorResponse(req.ClusterB, err); code != 0 {
 				return nil, nil, resp, code
@@ -378,12 +379,12 @@ func clearKubevirtCAIfRequested(
 		}
 	}
 	var err error
-	caA, err = readClusterCABundle(ctx, clientA, ns)
+	caA, err = readClusterCABundle(ctx, clientA, nsA)
 	if err != nil {
 		fresp, code := clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterA, err)
 		return nil, nil, fresp, code
 	}
-	caB, err = readClusterCABundle(ctx, clientB, ns)
+	caB, err = readClusterCABundle(ctx, clientB, nsB)
 	if err != nil {
 		fresp, code := clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterB, err)
 		return nil, nil, fresp, code
@@ -448,17 +449,17 @@ func checkExternalCAPending(ctx context.Context, client SpokeConfigMapClient, ns
 func (e *Exchanger) preflightExternalCA(
 	ctx context.Context,
 	clientA, clientB SpokeConfigMapClient,
-	ns string,
+	nsA, nsB string,
 	req api.CACLMExchangeRequest,
 	needWriteA, needWriteB bool,
 ) (*api.CACLMExchangeResponse, int) {
 	if needWriteA {
-		if resp, code := e.requireExternalCAConfigMap(ctx, clientA, ns, req.ClusterA, req.ClusterB, req.ClusterA); code != 0 {
+		if resp, code := e.requireExternalCAConfigMap(ctx, clientA, nsA, req.ClusterA, req.ClusterB, req.ClusterA); code != 0 {
 			return resp, code
 		}
 	}
 	if needWriteB {
-		if resp, code := e.requireExternalCAConfigMap(ctx, clientB, ns, req.ClusterA, req.ClusterB, req.ClusterB); code != 0 {
+		if resp, code := e.requireExternalCAConfigMap(ctx, clientB, nsB, req.ClusterA, req.ClusterB, req.ClusterB); code != 0 {
 			return resp, code
 		}
 	}
@@ -512,7 +513,7 @@ func writeExternalBundle(ctx context.Context, dest SpokeConfigMapClient, ns stri
 func verifyBidirectional(
 	ctx context.Context,
 	clientA, clientB SpokeConfigMapClient,
-	ns string,
+	nsA, nsB string,
 	expectBInA, expectAInB map[string]struct{},
 	snapshotA, snapshotB []byte,
 	timeout time.Duration,
@@ -528,11 +529,11 @@ func verifyBidirectional(
 	chB := make(chan result, 1)
 
 	go func() {
-		ok, e := pollTrustEstablished(verifyCtx, clientA, ns, expectBInA, pollInterval)
+		ok, e := pollTrustEstablished(verifyCtx, clientA, nsA, expectBInA, pollInterval)
 		chA <- result{ok: ok, err: e}
 	}()
 	go func() {
-		ok, e := pollTrustEstablished(verifyCtx, clientB, ns, expectAInB, pollInterval)
+		ok, e := pollTrustEstablished(verifyCtx, clientB, nsB, expectAInB, pollInterval)
 		chB <- result{ok: ok, err: e}
 	}()
 
@@ -547,8 +548,8 @@ func verifyBidirectional(
 			resB = r
 			received++
 		case <-verifyCtx.Done():
-			rotA, rotErrA := bundleRotated(ctx, clientA, ns, snapshotA)
-			rotB, rotErrB := bundleRotated(ctx, clientB, ns, snapshotB)
+			rotA, rotErrA := bundleRotated(ctx, clientA, nsA, snapshotA)
+			rotB, rotErrB := bundleRotated(ctx, clientB, nsB, snapshotB)
 			if rotErrA != nil {
 				return resA.ok, resB.ok, rotA, rotB, rotErrA
 			}
@@ -559,8 +560,8 @@ func verifyBidirectional(
 		}
 	}
 
-	rotA, rotErrA := bundleRotated(ctx, clientA, ns, snapshotA)
-	rotB, rotErrB := bundleRotated(ctx, clientB, ns, snapshotB)
+	rotA, rotErrA := bundleRotated(ctx, clientA, nsA, snapshotA)
+	rotB, rotErrB := bundleRotated(ctx, clientB, nsB, snapshotB)
 	if rotErrA != nil {
 		return resA.ok, resB.ok, rotA, rotB, rotErrA
 	}

@@ -150,7 +150,9 @@ Add a **separate** hub MRA (or existing fleet-admin binding) so the same subject
 | Field | Required | Description |
 |-------|----------|-------------|
 | `clusterA`, `clusterB` | yes | Hub `ManagedCluster` names |
-| `kubeVirtNamespace` | no | Default `openshift-cnv` |
+| `kubeVirtNamespace` | no | Default `openshift-cnv` for both clusters when per-cluster overrides are omitted |
+| `clusterAKubeVirtNamespace` | no | KubeVirt ConfigMap namespace for **`clusterA`** only (overrides `kubeVirtNamespace`) |
+| `clusterBKubeVirtNamespace` | no | KubeVirt ConfigMap namespace for **`clusterB`** only (overrides `kubeVirtNamespace`) |
 | `clearKubevirtCA` | no | Default **`false`**. When **`true`** and a spoke needs a write, clear `kubevirt-ca` `ca-bundle` once and wait for CNV to republish a **single** certificate before writing `kubevirt-external-ca`. **Destructive** on that spoke (drops peer CAs until the operator reconciles); use when bundles are large or stale, not for routine pairwise exchange on shared meshes. |
 
 Verification polling uses a **fixed 30s** timeout (not configurable on the request). Hub exchange **leases** use a **120s** TTL so the lock outlives verification under normal operation. **`clearKubevirtCA`** can use up to **30s per spoke** that needs a write (same window).
