@@ -137,40 +137,14 @@ func (e *Exchanger) Exchange(ctx context.Context, req api.CACLMExchangeRequest) 
 		return resp, 200
 	}
 
-	if req.ClearKubevirtCA {
-		if needWriteA {
-			if err := ensureSinglePrimaryCA(ctx, clientA, ns, timeout); err != nil {
-				log.Error(err, "clear kubevirt-ca for operator refresh", "cluster", req.ClusterA)
-				if resp, code := cleanupErrorResponse(req.ClusterA, err); code != 0 {
-					return resp, code
-				}
-				return clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterA, err)
-			}
-		}
-		if needWriteB {
-			if err := ensureSinglePrimaryCA(ctx, clientB, ns, timeout); err != nil {
-				log.Error(err, "clear kubevirt-ca for operator refresh", "cluster", req.ClusterB)
-				if resp, code := cleanupErrorResponse(req.ClusterB, err); code != 0 {
-					return resp, code
-				}
-				return clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterB, err)
-			}
-		}
-
-		caA, err = readClusterCABundle(ctx, clientA, ns)
-		if err != nil {
-			return clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterA, err)
-		}
-		caB, err = readClusterCABundle(ctx, clientB, ns)
-		if err != nil {
-			return clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterB, err)
-		}
-		if err := requireNonemptyCABundle(caA); err != nil {
-			return clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterA, err)
-		}
-		if err := requireNonemptyCABundle(caB); err != nil {
-			return clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterB, err)
-		}
+	refreshedA, refreshedB, clearResp, clearCode := clearKubevirtCAIfRequested(
+		ctx, req, clientA, clientB, ns, needWriteA, needWriteB, timeout,
+	)
+	if clearCode != 0 {
+		return clearResp, clearCode
+	}
+	if refreshedA != nil {
+		caA, caB = refreshedA, refreshedB
 	}
 
 	if resp, code := e.preflightExternalCA(ctx, clientA, clientB, ns, req, needWriteA, needWriteB); code != 0 {
@@ -369,6 +343,60 @@ func countCABundle(ctx context.Context, client SpokeConfigMapClient, ns string) 
 
 func failResponse(code, msg string) *api.CACLMExchangeResponse {
 	return &api.CACLMExchangeResponse{Status: statusFailed, Code: code, Message: msg}
+}
+
+func clearKubevirtCAIfRequested(
+	ctx context.Context,
+	req api.CACLMExchangeRequest,
+	clientA, clientB SpokeConfigMapClient,
+	ns string,
+	needWriteA, needWriteB bool,
+	timeout time.Duration,
+) (caA, caB []byte, resp *api.CACLMExchangeResponse, status int) {
+	if !req.ClearKubevirtCA {
+		return nil, nil, nil, 0
+	}
+	log := ctrl.LoggerFrom(ctx)
+	if needWriteA {
+		if err := ensureSinglePrimaryCA(ctx, clientA, ns, timeout); err != nil {
+			log.Error(err, "clear kubevirt-ca for operator refresh", "cluster", req.ClusterA)
+			if resp, code := cleanupErrorResponse(req.ClusterA, err); code != 0 {
+				return nil, nil, resp, code
+			}
+			fresp, code := clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterA, err)
+			return nil, nil, fresp, code
+		}
+	}
+	if needWriteB {
+		if err := ensureSinglePrimaryCA(ctx, clientB, ns, timeout); err != nil {
+			log.Error(err, "clear kubevirt-ca for operator refresh", "cluster", req.ClusterB)
+			if resp, code := cleanupErrorResponse(req.ClusterB, err); code != 0 {
+				return nil, nil, resp, code
+			}
+			fresp, code := clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterB, err)
+			return nil, nil, fresp, code
+		}
+	}
+	var err error
+	caA, err = readClusterCABundle(ctx, clientA, ns)
+	if err != nil {
+		fresp, code := clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterA, err)
+		return nil, nil, fresp, code
+	}
+	caB, err = readClusterCABundle(ctx, clientB, ns)
+	if err != nil {
+		fresp, code := clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterB, err)
+		return nil, nil, fresp, code
+	}
+	if err := requireNonemptyCABundle(caA); err != nil {
+		fresp, code := clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterA, err)
+		return nil, nil, fresp, code
+	}
+	if err := requireNonemptyCABundle(caB); err != nil {
+		fresp, code := clusterAccessError(req.ClusterA, req.ClusterB, req.ClusterB, err)
+		return nil, nil, fresp, code
+	}
+	return caA, caB, nil, 0
 }
 
 func cleanupErrorResponse(cluster string, err error) (*api.CACLMExchangeResponse, int) {
