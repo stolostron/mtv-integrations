@@ -35,7 +35,10 @@ const (
 	CodeAlreadyTrusted       = "CA_ALREADY_TRUSTED"
 	codeKubevirtCACleanup    = "KUBEVIRT_CA_CLEANUP_TIMEOUT"
 	codeVerifyTimeout        = "VERIFY_TIMEOUT"
+	codeVerifyPartial      = "VERIFY_PARTIAL"
 	statusFailed           = "failed"
+	statusSuccess          = "success"
+	statusPartial          = "partial"
 	nearLimitMessage       = "The kubevirt-ca ConfigMap contains %d certificates and is approaching " +
 		"the KubeVirt CA bundle limit. Review the bundle and follow the supported KubeVirt cleanup procedure."
 	defaultVerifyTimeout = 30 * time.Second
@@ -119,7 +122,7 @@ func (e *Exchanger) Exchange(ctx context.Context, req api.CACLMExchangeRequest) 
 	}
 
 	resp := &api.CACLMExchangeResponse{
-		Status: "success",
+		Status: statusSuccess,
 		ClusterA: &api.CACLMExchangeClusterStatus{
 			Cluster: req.ClusterA,
 		},
@@ -261,15 +264,15 @@ func (e *Exchanger) verifyFailureResponse(
 	verr error,
 ) (*api.CACLMExchangeResponse, int) {
 	if aVerified && !bVerified {
-		resp.Status = "partial"
-		resp.Code = "VERIFY_PARTIAL"
+		resp.Status = statusPartial
+		resp.Code = codeVerifyPartial
 		resp.Message = "Cluster A verified peer trust; cluster B verification timed out"
 		e.finalizeResponse(ctx, resp, clientA, clientB, nsA, nsB, aVerified, bVerified)
 		return resp, 504
 	}
 	if bVerified && !aVerified {
-		resp.Status = "partial"
-		resp.Code = "VERIFY_PARTIAL"
+		resp.Status = statusPartial
+		resp.Code = codeVerifyPartial
 		resp.Message = "Cluster B verified peer trust; cluster A verification timed out"
 		e.finalizeResponse(ctx, resp, clientA, clientB, nsA, nsB, aVerified, bVerified)
 		return resp, 504
@@ -454,12 +457,18 @@ func (e *Exchanger) preflightExternalCA(
 	needWriteA, needWriteB bool,
 ) (*api.CACLMExchangeResponse, int) {
 	if needWriteA {
-		if resp, code := e.requireExternalCAConfigMap(ctx, clientA, nsA, req.ClusterA, req.ClusterB, req.ClusterA); code != 0 {
+		resp, code := e.requireExternalCAConfigMap(
+			ctx, clientA, nsA, req.ClusterA, req.ClusterB, req.ClusterA,
+		)
+		if code != 0 {
 			return resp, code
 		}
 	}
 	if needWriteB {
-		if resp, code := e.requireExternalCAConfigMap(ctx, clientB, nsB, req.ClusterA, req.ClusterB, req.ClusterB); code != 0 {
+		resp, code := e.requireExternalCAConfigMap(
+			ctx, clientB, nsB, req.ClusterA, req.ClusterB, req.ClusterB,
+		)
+		if code != 0 {
 			return resp, code
 		}
 	}

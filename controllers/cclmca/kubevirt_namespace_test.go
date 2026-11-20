@@ -4,7 +4,6 @@
 package cclmca
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stolostron/mtv-integrations/api"
@@ -12,7 +11,6 @@ import (
 
 func TestKubeVirtNamespace(t *testing.T) {
 	t.Setenv("MTV_KUBEVIRT_NAMESPACE", "env-ns")
-	defer os.Unsetenv("MTV_KUBEVIRT_NAMESPACE")
 
 	if got := KubeVirtNamespace(""); got != "env-ns" {
 		t.Fatalf("empty override: got %q", got)

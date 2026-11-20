@@ -9,6 +9,8 @@ import (
 	"encoding/pem"
 )
 
+const pemBlockTypeCertificate = "CERTIFICATE"
+
 // mergeCACert returns the provider secret cacert that should be stored.
 //
 // Certificates are accepted with the same rules as crypto/x509.CertPool.AppendCertsFromPEM
@@ -94,7 +96,7 @@ func tlsCertsFromPEM(data []byte) ([]*x509.Certificate, bool) {
 		}
 		rest = next
 
-		if block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
+		if block.Type != pemBlockTypeCertificate || len(block.Headers) != 0 {
 			clean = false
 			continue
 		}
@@ -117,7 +119,7 @@ func encodeTLSCerts(certs []*x509.Certificate) []byte {
 			continue
 		}
 		seen[key] = struct{}{}
-		out = append(out, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})...)
+		out = append(out, pem.EncodeToMemory(&pem.Block{Type: pemBlockTypeCertificate, Bytes: cert.Raw})...)
 	}
 	return out
 }

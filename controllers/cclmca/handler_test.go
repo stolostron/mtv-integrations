@@ -173,8 +173,14 @@ func TestHandler_ExchangeSuccessWithPerClusterNamespaces(t *testing.T) {
 		}
 	})
 
-	body := `{"clusterA":"cluster-a","clusterB":"cluster-b","clusterAKubeVirtNamespace":"openshift-cnv","clusterBKubeVirtNamespace":"openshift-cnv"}`
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	bodyBytes, err := json.Marshal(api.CACLMExchangeRequest{
+		ClusterA:                  "cluster-a",
+		ClusterB:                  "cluster-b",
+		ClusterAKubeVirtNamespace: "openshift-cnv",
+		ClusterBKubeVirtNamespace: "openshift-cnv",
+	})
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(bodyBytes)))
 	req.Header.Set("Authorization", "Bearer test")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)

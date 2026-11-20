@@ -18,8 +18,9 @@ func TestCleanupErrorResponse(t *testing.T) {
 	if code != http.StatusGatewayTimeout || resp == nil || resp.Code != codeKubevirtCACleanup {
 		t.Fatalf("deadline: code=%d resp=%+v", code, resp)
 	}
-	if resp.Message == "" || resp.Message != `cluster "spoke-1": timed out waiting for CNV operator to refresh kubevirt-ca to a single CA` {
-		t.Fatalf("message=%q", resp.Message)
+	wantMsg := `cluster "spoke-1": timed out waiting for CNV operator to refresh kubevirt-ca to a single CA`
+	if resp.Message != wantMsg {
+		t.Fatalf("message=%q want=%q", resp.Message, wantMsg)
 	}
 
 	resp, code = cleanupErrorResponse("spoke-1", errors.New("other"))
