@@ -58,7 +58,7 @@ For system design, data flows, and module layout, see [docs/ARCHITECTURE.md](doc
 ## Testing patterns
 
 - Unit tests use controller-runtime's `envtest` (real etcd + API server, no mocking).
-- E2E tests use Ginkgo/Gomega with label filters (`webhook`, `managedcluster_provider_crd`, `migration_advisor`).
+- E2E tests use Ginkgo/Gomega with label filters (`webhook`, `managedcluster_provider_crd`, `migration_advisor`, `cclm_ca_exchange`).
 - Advisor e2e tests start fake Thanos and Search servers (`test/utils/fake-thanos-server/`, `test/utils/fake-search-server/`).
 - Test helpers are in `test/utils/`.
 

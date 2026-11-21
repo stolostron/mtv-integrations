@@ -151,6 +151,10 @@ build-installer: kustomize ## Generate a consolidated YAML with CRDs and deploym
 	mkdir -p dist
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default > dist/install.yaml
+	printf '\n---\n' >> dist/install.yaml
+	cat config/rbac/proxy_cclm_ca_exchange/namespace.yaml >> dist/install.yaml
+	printf '\n---\n' >> dist/install.yaml
+	$(KUSTOMIZE) build config/rbac/proxy_cclm_ca_exchange >> dist/install.yaml
 
 ##@ Deployment
 
@@ -162,9 +166,12 @@ endif
 deploy: kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
+	$(KUBECTL) apply -f config/rbac/proxy_cclm_ca_exchange/namespace.yaml
+	$(KUSTOMIZE) build config/rbac/proxy_cclm_ca_exchange | $(KUBECTL) apply -f -
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+	$(KUSTOMIZE) build config/rbac/proxy_cclm_ca_exchange | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 ##@ Dependencies
@@ -364,19 +371,20 @@ run-provider-crd-test: e2e-dependencies run-instrument
 	$(MAKE) exit-instrument
 
 run-e2e-test: e2e-dependencies run-instrument
-	$(GINKGO) -v --fail-fast --label-filter="!managedcluster_provider_crd && !webhook && !migration_advisor" --json-report=report_e2e.json test/e2e
+	$(GINKGO) -v --fail-fast --label-filter="!managedcluster_provider_crd && !webhook && !migration_advisor && !cclm_ca_exchange" --json-report=report_e2e.json test/e2e
 	-go tool covdata textfmt -i=coverage_profiles -o=coverage_e2e.out
 	$(MAKE) exit-instrument
 
 .PHONY: run-advisor-test
 run-advisor-test: e2e-dependencies ## Run migration advisor API e2e tests (requires prepare-e2e-test).
 	@set -e; \
-	trap '$(KUBECTL) delete -f test/resources/migration_advisor/userpermission.yaml --ignore-not-found; $(MAKE) stop-fake-search; $(MAKE) stop-fake-thanos; $(MAKE) exit-instrument' EXIT; \
+	trap '$(KUBECTL) delete -f test/resources/migration_advisor/userpermission.yaml --ignore-not-found; $(KUBECTL) delete -f test/resources/migration_advisor/userpermission-kubevirt.yaml --ignore-not-found; $(MAKE) stop-fake-search; $(MAKE) stop-fake-thanos; $(MAKE) exit-instrument' EXIT; \
 	$(MAKE) start-fake-search; \
 	$(MAKE) start-fake-thanos; \
 	export MTV_ADVISOR_ROLE_VM_FLEET_ADMIN=acm-vm-fleet-admin; \
+	export MTV_ADVISOR_ROLE_KUBEVIRT_ADMIN=kubevirt-admin; \
 	$(MAKE) run-instrument THANOS_HOST=$(FAKE_THANOS_HOST) SEARCH_API_ENDPOINT=$(FAKE_SEARCH_HOST)/searchapi/graphql; \
-	$(GINKGO) -v --fail-fast --label-filter="migration_advisor" --json-report=report_advisor.json -timeout 120s test/e2e; \
+	$(GINKGO) -v --fail-fast --label-filter="migration_advisor || cclm_ca_exchange" --json-report=report_advisor.json -timeout 120s test/e2e; \
 	go tool covdata textfmt -i=coverage_profiles -o=coverage_e2e.out || true
 
 delete-cluster:

@@ -60,7 +60,7 @@ The addon is configured with:
 
 ### Purpose
 
-When a hub `ManagedCluster` is labeled `acm/proxy-cclm: "true"`, this addon applies the CCLM **Proxy** datapath on that spoke: a managed `ConfigurationPolicy` requires `KubeVirt` feature gates `DecentralizedLiveMigration` and `CrossClusterMigrationProxy` plus `decentralizedLiveMigrationDatapath: Proxy` (additional customer gates are allowed), plus the virt-synchronization `Service` and `Route` from `docs/examples/cross-cluster-sync-proxy.yaml`.
+When a hub `ManagedCluster` is labeled `acm/proxy-cclm: "true"`, this addon applies the CCLM **Proxy** datapath on that spoke: a managed `ConfigurationPolicy` requires `KubeVirt` feature gates `DecentralizedLiveMigration` and `CrossClusterMigrationProxy` plus `decentralizedLiveMigrationDatapath: Proxy` (additional customer gates are allowed), plus the virt-synchronization `Service` and `Route` from `docs/examples/cross-cluster-sync-proxy.yaml`. The same enforcing policy merges **kubevirt-ca** / **kubevirt-external-ca** ConfigMap rules into the **`kubevirt.io:admin`** **ClusterRole** (installed by the CNV operator on the spoke).
 
 ### Requirements
 
@@ -70,6 +70,8 @@ When a hub `ManagedCluster` is labeled `acm/proxy-cclm: "true"`, this addon appl
 The AddOnTemplate includes Role `proxy-cclm-policy-manager` and bindings for `klusterlet-work-sa` so it can create the managed `ConfigurationPolicy`. That RBAC is separate from the CNV addon’s `operatorpolicy-manager`, so proxy-cclm works when CNV was installed manually and the CNV addon was never placed on the spoke.
 
 See `docs/azure-cclm-proxy-setup.md` for manual steps this addon automates.
+
+After both spokes carry **`acm/proxy-cclm=true`** and hub Secrets **`mtv-integrations/<cluster>-mtv`** exist (MTV spoke API onboarding), hub operators with **ACM fleet RBAC** can exchange **`kubevirt-ca`** trust via **`POST /api/v1/proxy-cclm/ca-exchange`** (migration advisor port **8082**). **Required:** hub **`MulticlusterRoleAssignment`** — **`acm-vm-fleet:admin`** on **`local-cluster`** (API gate) and spoke **`kubevirt.io:admin`** with **Placement** on **both** **`ManagedCluster`** names and **`targetNamespaces: [openshift-cnv]`** (CA ConfigMap verbs are on **`kubevirt.io:admin`** via this addon’s ConfigurationPolicy). Forklift **Provider** CRs are not involved. Details: [`docs/CCLM_CA_EXCHANGE_API.md`](../docs/CCLM_CA_EXCHANGE_API.md).
 
 ## Installation
 
