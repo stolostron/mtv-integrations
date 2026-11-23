@@ -239,7 +239,7 @@ func (e *Exchanger) handleVerify(
 		timeout, detectRotation,
 	)
 
-	if (rotA || rotB) && !(aVerified && bVerified) {
+	if (rotA || rotB) && (!aVerified || !bVerified) {
 		resp.Status = statusFailed
 		resp.Code = "CA_ROTATED_DURING_EXCHANGE"
 		resp.Message = "KubeVirt CA bundle changed during exchange; retry after reconcile"
