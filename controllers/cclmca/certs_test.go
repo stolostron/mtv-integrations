@@ -22,7 +22,9 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
+	"net/http"
 	"testing"
 	"time"
 )
@@ -78,6 +80,32 @@ func TestBundleContainsAll(t *testing.T) {
 func TestCertCountWarningThreshold(t *testing.T) {
 	if CertCountWarningThreshold != 45 {
 		t.Fatalf("expected 45, got %d", CertCountWarningThreshold)
+	}
+}
+
+func TestFingerprintsPresentRejectsEmptyExpected(t *testing.T) {
+	ok, err := fingerprintsPresent(string(testCertPEM(t, "a")), nil)
+	if err == nil || ok {
+		t.Fatalf("empty expected set must not count as verified, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestFingerprintSourceError(t *testing.T) {
+	resp, code := fingerprintSourceError("cnv-1", nil, fmt.Errorf("parse certificate: bad"))
+	if code != http.StatusInternalServerError || resp == nil || resp.Code != "PARSE_ERROR" {
+		t.Fatalf("parse error: code=%d resp=%v", code, resp)
+	}
+	resp, code = fingerprintSourceError("cnv-1", map[string]struct{}{}, nil)
+	if code != http.StatusInternalServerError || resp == nil || resp.Code != "PARSE_ERROR" {
+		t.Fatalf("empty set: code=%d resp=%v", code, resp)
+	}
+	set, err := expectedFingerprintsFromSource(testCertPEM(t, "ok"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, code = fingerprintSourceError("cnv-1", set, nil)
+	if code != 0 || resp != nil {
+		t.Fatalf("valid bundle: code=%d resp=%v", code, resp)
 	}
 }
 

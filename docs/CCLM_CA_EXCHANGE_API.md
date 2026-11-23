@@ -182,7 +182,7 @@ spec:
 | `clusterBKubeVirtNamespace` | no | KubeVirt ConfigMap namespace for **`clusterB`** only (overrides `kubeVirtNamespace`) |
 | `clearKubevirtCA` | no | Default **`false`**. When **`true`** and a spoke needs a write, clear `kubevirt-ca` `ca-bundle` once and wait for CNV to republish a **single** certificate before writing `kubevirt-external-ca`. **Destructive** on that spoke (drops peer CAs until the operator reconciles); use when bundles are large or stale, not for routine pairwise exchange on shared meshes. |
 
-Verification polling uses a **fixed 30s** timeout (not configurable on the request). Hub exchange **leases** use a **120s** TTL so the lock outlives verification under normal operation. **`clearKubevirtCA`** can use up to **30s per spoke** that needs a write (same window).
+Verification polling uses a **fixed 30s** timeout (not configurable on the request). Hub exchange **leases** last longer than the advisor HTTP write timeout (**150s**) and the holder refreshes them until release, so a slow exchange cannot expire the lock and admit a second writer. **`clearKubevirtCA`** can use up to **30s per spoke** that needs a write (same window).
 
 `clusterA` and `clusterB` are hub `ManagedCluster` **metadata.name** values (not MTV provider suffixes).
 

@@ -227,8 +227,14 @@ func (e *Exchanger) handleVerify(
 	timeout time.Duration,
 	clearKubevirtCA bool,
 ) (*api.CACLMExchangeResponse, int) {
-	expectBInA, _ := expectedFingerprintsFromSource(snapshotB)
-	expectAInB, _ := expectedFingerprintsFromSource(snapshotA)
+	expectBInA, err := expectedFingerprintsFromSource(snapshotB)
+	if resp, code := fingerprintSourceError(resp.ClusterB.Cluster, expectBInA, err); code != 0 {
+		return resp, code
+	}
+	expectAInB, err := expectedFingerprintsFromSource(snapshotA)
+	if resp, code := fingerprintSourceError(resp.ClusterA.Cluster, expectAInB, err); code != 0 {
+		return resp, code
+	}
 
 	// After clearKubevirtCA the CNV operator replaces kubevirt-ca; snapshot fingerprint checks are not meaningful.
 	detectRotation := !clearKubevirtCA
@@ -258,6 +264,19 @@ func (e *Exchanger) handleVerify(
 		return e.verifyFailureResponse(ctx, resp, clientA, clientB, nsA, nsB, aVerified, bVerified, verr)
 	}
 	return resp, 0
+}
+
+func fingerprintSourceError(cluster string, expected map[string]struct{}, err error) (*api.CACLMExchangeResponse, int) {
+	if err != nil {
+		return failResponse("PARSE_ERROR", fmt.Sprintf("cluster %q kubevirt-ca: %s", cluster, err.Error())),
+			http.StatusInternalServerError
+	}
+	if len(expected) == 0 {
+		return failResponse("PARSE_ERROR",
+				fmt.Sprintf("cluster %q kubevirt-ca has no certificates to exchange", cluster)),
+			http.StatusInternalServerError
+	}
+	return nil, 0
 }
 
 func (e *Exchanger) verifyFailureResponse(

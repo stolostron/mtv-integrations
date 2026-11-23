@@ -128,7 +128,11 @@ func expectedFingerprintsFromSource(sourcePEM []byte) (map[string]struct{}, erro
 }
 
 // fingerprintsPresent reports whether every expected fingerprint exists in trustPEM.
+// An empty expected set is an error: ranging over nil would otherwise report success.
 func fingerprintsPresent(trustPEM string, expected map[string]struct{}) (bool, error) {
+	if len(expected) == 0 {
+		return false, fmt.Errorf("no expected certificate fingerprints")
+	}
 	trust, err := fingerprintSet([]byte(trustPEM))
 	if err != nil {
 		return false, err

@@ -37,6 +37,7 @@ func TestAcquireClusterLock_SecondCallerBusy(t *testing.T) {
 	if first == nil || !first.acquired {
 		t.Fatal("expected first lock acquired")
 	}
+	defer first.release(ctx)
 
 	second, err := acquireClusterLock(ctx, client, "cluster-a")
 	if err != nil {
@@ -66,10 +67,11 @@ func TestAcquireClusterLock_CreatesLeaseInNamespace(t *testing.T) {
 	ctx := context.Background()
 	client := fake.NewSimpleClientset()
 
-	_, err := acquireClusterLock(ctx, client, "spoke-1")
+	lk, err := acquireClusterLock(ctx, client, "spoke-1")
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
+	defer lk.release(ctx)
 	_, err = client.CoordinationV1().Leases(hubLeaseNamespace).Get(ctx, leasePrefix+"spoke-1", metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get lease: %v", err)
@@ -88,4 +90,46 @@ func TestLeaseExpired(t *testing.T) {
 	if !leaseExpired(lease) {
 		t.Fatal("expected expired lease")
 	}
+}
+
+func TestLeaseDurationOutlivesAdvisorWrite(t *testing.T) {
+	if leaseDuration <= AdvisorHTTPWriteTimeout {
+		t.Fatalf("lease duration %s must exceed advisor write timeout %s", leaseDuration, AdvisorHTTPWriteTimeout)
+	}
+}
+
+func TestClusterLockRenewsWhileHeld(t *testing.T) {
+	orig := leaseRenewInterval
+	leaseRenewInterval = 20 * time.Millisecond
+	t.Cleanup(func() { leaseRenewInterval = orig })
+
+	ctx := context.Background()
+	client := fake.NewSimpleClientset()
+	lk, err := acquireClusterLock(ctx, client, "cluster-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lk.release(ctx)
+
+	lease, err := client.CoordinationV1().Leases(hubLeaseNamespace).Get(
+		ctx, leasePrefix+"cluster-a", metav1.GetOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := lease.Spec.RenewTime.Time
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		lease, err = client.CoordinationV1().Leases(hubLeaseNamespace).Get(
+			ctx, leasePrefix+"cluster-a", metav1.GetOptions{},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if lease.Spec.RenewTime != nil && lease.Spec.RenewTime.After(first) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("expected RenewTime to advance while the lock is held")
 }
