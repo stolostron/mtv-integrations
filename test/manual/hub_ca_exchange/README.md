@@ -38,7 +38,7 @@ oc login <api-url> -u ca-exchange-u2 -p '<password>'
 oc get userpermission
 ```
 
-Callers need hub **`acm-vm-fleet:view`** or **`acm-vm-fleet:admin`** (e.g. user2/u3 fleet MRAs) **and** **`kubevirt.io:admin`** on both spokes (user2/u4). The API enforces kubevirt only; verify both with `oc get userpermission`.
+**Required for exchange:** **`kubevirt.io:admin`** on both spokes (user2/u4) and hub **`get`** on `userpermissions` (CRB on 2.17; fleet MRA on 5.1+ when `oc auth can-i get userpermissions` is yes). **Not required:** fleet MRA — user4 has kubevirt only and succeeds. Matrix A still assigns **`acm-vm-fleet:admin`** on user2/u3 for fleet/list UX, not for the API gate.
 
 ## 3b. Temporary hub Policy (legacy caller-bearer only)
 
@@ -65,22 +65,52 @@ Run `clearKubevirtCA: true` as a **separate** POST (user2 only).
 
 ### Auth matrix (`POST`, `clearKubevirtCA: false`)
 
-| Caller | Fleet UP | Kubevirt UP | Clusterview GET workaround | HTTP | Code / notes |
-|--------|----------|-------------|----------------------------|------|----------------|
-| (no token) | — | — | — | **401** | `UNAUTHORIZED` |
-| **ca-exchange-u2** | yes | yes (cnv-1, cnv-2) | yes | **200** | Success |
-| **ca-exchange-u3** | yes | no | yes | **403** | Missing kubevirt UP |
-| **ca-exchange-u3** | yes | no | **removed** (`ca-exchange-u3-clusterview-get`) | **403** | `can-i get userpermissions` → no; same message |
-| **ca-exchange-u4** | no | yes (cnv-1, cnv-2) | yes | **200** | Kubevirt-only sufficient; GET `kubevirt.io:admin` → 200 |
+**API enforces:** `kubevirt.io:admin` `UserPermission` on **both** spokes (via `GET userpermissions/kubevirt.io:admin` as the caller). **Fleet** `UserPermission` is not checked by the exchange.
+
+**Hub operational need (ACM 2.17):** callers must be able to **`get`** `userpermissions` in clusterview.
+
+**CRB** (ClusterRoleBinding on the **hub**, not MRA): e.g. `ca-exchange-u4-clusterview-get` binds the test User to ClusterRole `mtv-integrations:proxy-cclm-ca-exchange-userpermissions` (`config/rbac/proxy_cclm_ca_exchange/caller_userpermissions.yaml`). That grants **`get`** on clusterview `userpermissions` so the exchange can `GET …/userpermissions/kubevirt.io:admin` as the caller. Fleet MRAs on 2.17 only **`list`** that API — skip the CRB on 5.1+ when fleet roles already allow **`get`**.
+
+| Caller | `kubevirt.io:admin` UP (cnv-1, cnv-2) | Hub `GET …/userpermissions/kubevirt.io:admin` | HTTP | Notes |
+|--------|--------------------------------------|-----------------------------------------------|------|-------|
+| (no Bearer) | — | — | **401** | `UNAUTHORIZED` |
+| **ca-exchange-u2** | **yes** | allowed | **200** | Also has fleet UP (not required for API) |
+| **ca-exchange-u3** | **no** | allowed | **403** | Fleet only; kubevirt UP missing |
+| **ca-exchange-u3** | **no** | **denied** (CRB removed) | **403** | Same JSON message |
+| **ca-exchange-u4** | **yes** | allowed (CRB present) | **200** | No fleet UP |
+| **ca-exchange-u4** | **yes** | **denied** (CRB removed) | **403** | Has kubevirt MRA but cannot `GET`; `can-i get userpermissions` → no |
 
 `GET /api/v1/proxy-cclm/health` → **200** `ok` (unauthenticated).
 
 ### Functional (ca-exchange-u2, build 6)
 
-| `clearKubevirtCA` | HTTP | Result |
-|-------------------|------|--------|
-| **false** | **200** | `caVerified: true` on both clusters |
-| **true** | **200** | First call after rotation-check fix; no spurious `CA_ROTATED_DURING_EXCHANGE` |
+Recorded on hub **2026-11-20** (`cnv-1` ↔ `cnv-2`), back-to-back POSTs.
+
+**`clearKubevirtCA: false`** — HTTP **200** (bundles already large from prior testing):
+
+```json
+{
+  "status": "success",
+  "clusterA": { "cluster": "cnv-1", "caVerified": true, "certificateCount": 58, "writePerformed": true },
+  "clusterB": { "cluster": "cnv-2", "caVerified": true, "certificateCount": 51, "writePerformed": true },
+  "warnings": [
+    { "cluster": "cnv-1", "code": "KUBEVIRT_CA_NEAR_LIMIT", "message": "…contains 58 certificates…" },
+    { "cluster": "cnv-2", "code": "KUBEVIRT_CA_NEAR_LIMIT", "message": "…contains 51 certificates…" }
+  ]
+}
+```
+
+**`clearKubevirtCA: true`** — HTTP **200** (immediate follow-up; operator refresh + exchange):
+
+```json
+{
+  "status": "success",
+  "clusterA": { "cluster": "cnv-1", "caVerified": true, "certificateCount": 2, "writePerformed": true },
+  "clusterB": { "cluster": "cnv-2", "caVerified": true, "certificateCount": 2, "writePerformed": true }
+}
+```
+
+`KUBEVIRT_CA_NEAR_LIMIT` is emitted when `certificateCount` **> 45** after exchange (success still **200**).
 
 Build 5 (before verify fix): `clearKubevirtCA: true` could return **409** `CA_ROTATED_DURING_EXCHANGE` once; immediate retry → **200**.
 

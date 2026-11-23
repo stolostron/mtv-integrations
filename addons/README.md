@@ -60,7 +60,7 @@ The addon is configured with:
 
 ### Purpose
 
-When a hub `ManagedCluster` is labeled `acm/proxy-cclm: "true"`, this addon applies the CCLM **Proxy** datapath on that spoke: a managed `ConfigurationPolicy` requires `KubeVirt` feature gates `DecentralizedLiveMigration` and `CrossClusterMigrationProxy` plus `decentralizedLiveMigrationDatapath: Proxy` (additional customer gates are allowed), plus the virt-synchronization `Service` and `Route` from `docs/examples/cross-cluster-sync-proxy.yaml`. The same enforcing policy merges **kubevirt-ca** / **kubevirt-external-ca** ConfigMap rules into the **`kubevirt.io:admin`** **ClusterRole** (installed by the CNV operator on the spoke).
+When a hub `ManagedCluster` is labeled `acm/proxy-cclm: "true"`, this addon applies the CCLM **Proxy** datapath on that spoke: a managed `ConfigurationPolicy` requires `KubeVirt` feature gates `DecentralizedLiveMigration` and `CrossClusterMigrationProxy` plus `decentralizedLiveMigrationDatapath: Proxy` (additional customer gates are allowed), plus the virt-synchronization `Service` and `Route` from `docs/examples/cross-cluster-sync-proxy.yaml`.
 
 ### Requirements
 
@@ -71,7 +71,7 @@ The AddOnTemplate includes Role `proxy-cclm-policy-manager` and bindings for `kl
 
 See `docs/azure-cclm-proxy-setup.md` for manual steps this addon automates.
 
-After both spokes carry **`acm/proxy-cclm=true`** and hub Secrets **`mtv-integrations/<cluster>-mtv`** exist (MTV spoke API onboarding), hub operators with **ACM fleet RBAC** can exchange **`kubevirt-ca`** trust via **`POST /api/v1/proxy-cclm/ca-exchange`** (migration advisor port **8082**). **Required:** hub **`MulticlusterRoleAssignment`** — **`acm-vm-fleet:admin`** on **`local-cluster`** (API gate) and spoke **`kubevirt.io:admin`** with **Placement** on **both** **`ManagedCluster`** names and **`targetNamespaces: [openshift-cnv]`** (CA ConfigMap verbs are on **`kubevirt.io:admin`** via this addon’s ConfigurationPolicy). Forklift **Provider** CRs are not involved. Details: [`docs/CCLM_CA_EXCHANGE_API.md`](../docs/CCLM_CA_EXCHANGE_API.md).
+After both spokes carry **`acm/proxy-cclm=true`** and hub **cluster-proxy** is enabled, operators can exchange **`kubevirt-ca`** trust via **`POST /api/v1/proxy-cclm/ca-exchange`** (migration advisor port **8082**). **Required:** spoke **`kubevirt.io:admin`** via **MulticlusterRoleAssignment** with **Placement** on **both** exchange **`ManagedCluster`** names and **`targetNamespaces: [openshift-cnv]`** — the API enforces **`kubevirt.io:admin`** **`UserPermission`** on the hub (`GET userpermissions/kubevirt.io:admin` as the caller). Spoke ConfigMap I/O uses MTV **`mtv-integrations/<cluster>-mtv`** (ManagedServiceAccount) tokens through cluster-proxy, not the caller’s hub token. **Not required:** **`acm-vm-fleet:view`** or **`acm-vm-fleet:admin`** (kubevirt-only callers can succeed; hub manual tests use **`acm-vm-fleet:admin`** on **`local-cluster`** for fleet UX). On ACM 2.17, callers also need hub RBAC to **`get`** `userpermissions` (see `config/rbac/proxy_cclm_ca_exchange/caller_userpermissions.yaml`). Details: [`docs/CCLM_CA_EXCHANGE_API.md`](../docs/CCLM_CA_EXCHANGE_API.md).
 
 ## Installation
 

@@ -1,0 +1,58 @@
+# Temporary hub Policy for manual CA exchange testing.
+# Propagates ConfigMap RBAC on kubevirt.io:admin to clusters in Placement proxy-cclm.
+# Remove after proxy-cclm addon is upgraded (second object-template in ConfigurationPolicy).
+#
+#   oc apply -f proxy-cclm-ca-rbac-temp-policy.yaml
+#   oc delete -f proxy-cclm-ca-rbac-temp-policy.yaml   # rollback
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: proxy-cclm-ca-rbac-manual
+  namespace: open-cluster-management-global-set
+spec:
+  disabled: false
+  remediationAction: enforce
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: proxy-cclm-kubevirt-ca-rbac
+        spec:
+          evaluationInterval:
+            compliant: 1m
+            noncompliant: 30s
+          remediationAction: enforce
+          severity: low
+          pruneObjectBehavior: None
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: rbac.authorization.k8s.io/v1
+                kind: ClusterRole
+                metadata:
+                  name: kubevirt.io:admin
+                rules:
+                  - apiGroups: [""]
+                    resources: [configmaps]
+                    resourceNames: [kubevirt-ca]
+                    verbs: [get, list, watch, update, patch]
+                  - apiGroups: [""]
+                    resources: [configmaps]
+                    resourceNames: [kubevirt-external-ca]
+                    verbs: [get, list, watch, update, patch]
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: binding-proxy-cclm-ca-rbac-manual
+  namespace: open-cluster-management-global-set
+placementRef:
+  name: proxy-cclm
+  kind: Placement
+  apiGroup: cluster.open-cluster-management.io
+subjects:
+  - name: proxy-cclm-ca-rbac-manual
+    kind: Policy
+    apiGroup: policy.open-cluster-management.io

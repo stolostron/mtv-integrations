@@ -297,7 +297,7 @@ prepare-webhook-test: kind-create-cluster create-user add-user cert-manager kind
 # kind cannot create UserPermission objects whose names contain ':' (RFC 1123). Point the webhook at DNS-safe mock names.
 .PHONY: patch-webhook-e2e-userpermission-names
 patch-webhook-e2e-userpermission-names:
-	$(KUBECTL) set env deployment/mtv-integrations-controller -n open-cluster-management MTV_USERPERMISSION_NAMES=managedcluster-admin,kubevirt-io-admin --overwrite
+	$(KUBECTL) set env deployment/mtv-integrations-controller -n open-cluster-management MTV_USERPERMISSION_NAMES=managedcluster-admin,kubevirt-io-admin MTV_CCLM_CLUSTER_PROXY_MODE=direct --overwrite
 	$(KUBECTL) rollout status deployment/mtv-integrations-controller -n open-cluster-management --timeout=120s
 
 e2e-dependencies:

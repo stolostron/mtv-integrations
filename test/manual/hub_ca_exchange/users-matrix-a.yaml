@@ -1,0 +1,141 @@
+# Matrix A: htpasswd Users + MRAs (not ServiceAccounts).
+# Exchange requires kubevirt.io:admin MRA on both spokes + hub get on userpermissions (see README).
+# Fleet MRAs below (acm-vm-fleet:admin on local-cluster) are optional matrix coverage, not API-enforced.
+# kubevirt.io:admin on both spokes (kubevirt MRA) is required; API enforces kubevirt UserPermission only.
+# Prerequisites: fine-grained-rbac enabled, placement openshift-cnv (local-cluster) and proxy-cclm (cnv-1,cnv-2).
+# Apply oauth-htpasswd-idp.yaml + secret ca-exchange-htpasswd (see README).
+---
+apiVersion: user.openshift.io/v1
+kind: User
+metadata:
+  name: ca-exchange-u2
+---
+apiVersion: user.openshift.io/v1
+kind: User
+metadata:
+  name: ca-exchange-u3
+---
+apiVersion: user.openshift.io/v1
+kind: User
+metadata:
+  name: ca-exchange-u4
+---
+apiVersion: rbac.open-cluster-management.io/v1beta1
+kind: MulticlusterRoleAssignment
+metadata:
+  name: ca-exchange-user2-fleet
+  namespace: open-cluster-management-global-set
+spec:
+  subject:
+    kind: User
+    name: ca-exchange-u2
+    apiGroup: rbac.authorization.k8s.io
+  roleAssignments:
+    - name: fleet-admin-hub
+      clusterRole: acm-vm-fleet:admin
+      clusterSelection:
+        type: placements
+        placements:
+          - name: openshift-cnv
+            namespace: open-cluster-management
+---
+apiVersion: rbac.open-cluster-management.io/v1beta1
+kind: MulticlusterRoleAssignment
+metadata:
+  name: ca-exchange-user2-kubevirt
+  namespace: open-cluster-management-global-set
+spec:
+  subject:
+    kind: User
+    name: ca-exchange-u2
+    apiGroup: rbac.authorization.k8s.io
+  roleAssignments:
+    - name: kubevirt-admin-proxy-cclm
+      clusterRole: kubevirt.io:admin
+      targetNamespaces:
+        - openshift-cnv
+      clusterSelection:
+        type: placements
+        placements:
+          - name: proxy-cclm
+            namespace: open-cluster-management-global-set
+---
+apiVersion: rbac.open-cluster-management.io/v1beta1
+kind: MulticlusterRoleAssignment
+metadata:
+  name: ca-exchange-user3-fleet
+  namespace: open-cluster-management-global-set
+spec:
+  subject:
+    kind: User
+    name: ca-exchange-u3
+    apiGroup: rbac.authorization.k8s.io
+  roleAssignments:
+    - name: fleet-only
+      clusterRole: acm-vm-fleet:admin
+      clusterSelection:
+        type: placements
+        placements:
+          - name: openshift-cnv
+            namespace: open-cluster-management
+---
+apiVersion: rbac.open-cluster-management.io/v1beta1
+kind: MulticlusterRoleAssignment
+metadata:
+  name: ca-exchange-user4-kubevirt
+  namespace: open-cluster-management-global-set
+spec:
+  subject:
+    kind: User
+    name: ca-exchange-u4
+    apiGroup: rbac.authorization.k8s.io
+  roleAssignments:
+    - name: kubevirt-only
+      clusterRole: kubevirt.io:admin
+      targetNamespaces:
+        - openshift-cnv
+      clusterSelection:
+        type: placements
+        placements:
+          - name: proxy-cclm
+            namespace: open-cluster-management-global-set
+---
+# ACM 2.17 workaround — see config/rbac/proxy_cclm_ca_exchange/caller_userpermissions.yaml (5.1+ fleet roles include get/watch).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ca-exchange-u2-clusterview-get
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mtv-integrations:proxy-cclm-ca-exchange-userpermissions
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: ca-exchange-u2
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ca-exchange-u3-clusterview-get
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mtv-integrations:proxy-cclm-ca-exchange-userpermissions
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: ca-exchange-u3
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ca-exchange-u4-clusterview-get
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mtv-integrations:proxy-cclm-ca-exchange-userpermissions
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: ca-exchange-u4

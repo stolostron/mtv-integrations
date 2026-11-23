@@ -31,10 +31,10 @@ import (
 )
 
 const (
-	CodeExchangeInProgress   = "CA_EXCHANGE_IN_PROGRESS"
-	CodeAlreadyTrusted       = "CA_ALREADY_TRUSTED"
-	codeKubevirtCACleanup    = "KUBEVIRT_CA_CLEANUP_TIMEOUT"
-	codeVerifyTimeout        = "VERIFY_TIMEOUT"
+	CodeExchangeInProgress = "CA_EXCHANGE_IN_PROGRESS"
+	CodeAlreadyTrusted     = "CA_ALREADY_TRUSTED"
+	codeKubevirtCACleanup  = "KUBEVIRT_CA_CLEANUP_TIMEOUT"
+	codeVerifyTimeout      = "VERIFY_TIMEOUT"
 	codeVerifyPartial      = "VERIFY_PARTIAL"
 	statusFailed           = "failed"
 	statusSuccess          = "success"
@@ -205,7 +205,9 @@ func (e *Exchanger) Exchange(ctx context.Context, req api.CACLMExchangeRequest) 
 	}
 
 	if needWriteA || needWriteB {
-		if resp, code := e.handleVerify(ctx, resp, clientA, clientB, nsA, nsB, snapshotA, snapshotB, timeout); code != 0 {
+		if resp, code := e.handleVerify(
+			ctx, resp, clientA, clientB, nsA, nsB, snapshotA, snapshotB, timeout, req.ClearKubevirtCA,
+		); code != 0 {
 			return resp, code
 		}
 	}
@@ -223,18 +225,21 @@ func (e *Exchanger) handleVerify(
 	nsA, nsB string,
 	snapshotA, snapshotB []byte,
 	timeout time.Duration,
+	clearKubevirtCA bool,
 ) (*api.CACLMExchangeResponse, int) {
 	expectBInA, _ := expectedFingerprintsFromSource(snapshotB)
 	expectAInB, _ := expectedFingerprintsFromSource(snapshotA)
 
+	// After clearKubevirtCA the CNV operator replaces kubevirt-ca; snapshot fingerprint checks are not meaningful.
+	detectRotation := !clearKubevirtCA
 	aVerified, bVerified, rotA, rotB, verr := verifyBidirectional(
 		ctx, clientA, clientB, nsA, nsB,
 		expectBInA, expectAInB,
 		snapshotA, snapshotB,
-		timeout,
+		timeout, detectRotation,
 	)
 
-	if rotA || rotB {
+	if (rotA || rotB) && !(aVerified && bVerified) {
 		resp.Status = statusFailed
 		resp.Code = "CA_ROTATED_DURING_EXCHANGE"
 		resp.Message = "KubeVirt CA bundle changed during exchange; retry after reconcile"
@@ -526,6 +531,7 @@ func verifyBidirectional(
 	expectBInA, expectAInB map[string]struct{},
 	snapshotA, snapshotB []byte,
 	timeout time.Duration,
+	detectRotation bool,
 ) (aOK, bOK, rotA, rotB bool, err error) {
 	verifyCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -557,6 +563,9 @@ func verifyBidirectional(
 			resB = r
 			received++
 		case <-verifyCtx.Done():
+			if !detectRotation {
+				return resA.ok, resB.ok, false, false, verifyCtx.Err()
+			}
 			rotA, rotErrA := bundleRotated(ctx, clientA, nsA, snapshotA)
 			rotB, rotErrB := bundleRotated(ctx, clientB, nsB, snapshotB)
 			if rotErrA != nil {
@@ -569,16 +578,16 @@ func verifyBidirectional(
 		}
 	}
 
-	rotA, rotErrA := bundleRotated(ctx, clientA, nsA, snapshotA)
-	rotB, rotErrB := bundleRotated(ctx, clientB, nsB, snapshotB)
-	if rotErrA != nil {
-		return resA.ok, resB.ok, rotA, rotB, rotErrA
-	}
-	if rotErrB != nil {
-		return resA.ok, resB.ok, rotA, rotB, rotErrB
-	}
-	if (rotA && resA.ok) || (rotB && resB.ok) {
-		return resA.ok && !rotA, resB.ok && !rotB, rotA, rotB, fmt.Errorf("kubevirt-ca rotated during verification")
+	if detectRotation {
+		var rotErrA, rotErrB error
+		rotA, rotErrA = bundleRotated(ctx, clientA, nsA, snapshotA)
+		rotB, rotErrB = bundleRotated(ctx, clientB, nsB, snapshotB)
+		if rotErrA != nil {
+			return resA.ok, resB.ok, rotA, rotB, rotErrA
+		}
+		if rotErrB != nil {
+			return resA.ok, resB.ok, rotA, rotB, rotErrB
+		}
 	}
 
 	if resA.err != nil && !errors.Is(resA.err, context.DeadlineExceeded) && !errors.Is(resA.err, context.Canceled) {

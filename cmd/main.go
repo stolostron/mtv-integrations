@@ -285,7 +285,7 @@ func setupAdvisorServer(
 	if err != nil {
 		return fmt.Errorf("kubernetes client for advisor server: %w", err)
 	}
-	cclmCAHandler := cclmca.NewHandler(dynamicClient, restConfig, hubKube)
+	cclmCAHandler := cclmca.NewHandler(dynamicClient, restConfig, hubKube, serviceCAPath)
 	cclmCAHealth := cclmca.NewHealthHandler(hubKube)
 
 	advisorMux := http.NewServeMux()

@@ -18,9 +18,9 @@ func isSpokeRBACDenied(err error) bool {
 
 func spokeRBACDeniedMessage(clusterA, clusterB, failingCluster string, err error) string {
 	return fmt.Sprintf(
-		"cluster %q: access denied (%v). Grant kubevirt.io:admin in openshift-cnv on %q and %q (MRA); "+
-			"label both acm/proxy-cclm=true.",
-		failingCluster, err, clusterA, clusterB,
+		"cluster %q: spoke API access denied (%v). Confirm MTV provider secret %q in mtv-integrations "+
+			"and ManagedServiceAccount RBAC on the spoke; callers still need kubevirt.io:admin UserPermission on %q and %q.",
+		failingCluster, err, failingCluster+"-mtv", clusterA, clusterB,
 	)
 }
 

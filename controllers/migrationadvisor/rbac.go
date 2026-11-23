@@ -64,10 +64,10 @@ func advisorRoleKubevirtAdmin() string {
 }
 
 // CheckCallerAuthorizedForClusters returns true when the caller may invoke proxy-cclm CA exchange:
-// hub acm-vm-fleet:admin (local-cluster with namespaces *) and kubevirt.io:admin bindings for every
-// named cluster. Spoke API calls still enforce RBAC via the managed-cluster proxy (403/502 on denial).
-// Uses the caller's bearer token (not the controller SA).
-// Used by proxy-cclm CA exchange only; migration advisor keeps the looser hub check.
+// kubevirt.io:admin UserPermission bindings for every named cluster. Spoke ConfigMap I/O uses the
+// MTV provider token (not the caller's bearer). Uses the caller's bearer for this hub check only.
+// Used by proxy-cclm CA exchange only; migration advisor keeps the looser hub check
+// (fleet admin or managedcluster:admin).
 func CheckCallerAuthorizedForClusters(
 	ctx context.Context,
 	controllerClient dynamic.Interface,
@@ -84,11 +84,6 @@ func CheckCallerAuthorizedForClusters(
 	callerClient, err := newCallerDynamicClient(baseConfig, bearerToken)
 	if err != nil {
 		return false, err
-	}
-
-	ok, err := userPermissionCoversHubWildcard(authCtx, callerClient)
-	if err != nil || !ok {
-		return ok, err
 	}
 
 	return callerCoversClustersForRole(

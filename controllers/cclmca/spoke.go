@@ -85,18 +85,6 @@ type spokeClient struct {
 	clientset kubernetes.Interface
 }
 
-type ctxCallerBearerKey struct{}
-
-// WithCallerBearerToken stores the API caller's bearer token for spoke client construction.
-func WithCallerBearerToken(ctx context.Context, bearer string) context.Context {
-	return context.WithValue(ctx, ctxCallerBearerKey{}, bearer)
-}
-
-func callerBearerFromContext(ctx context.Context) (string, bool) {
-	bearer, ok := ctx.Value(ctxCallerBearerKey{}).(string)
-	return bearer, ok && strings.TrimSpace(bearer) != ""
-}
-
 func validateSpokeHTTPSURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -109,6 +97,7 @@ func validateSpokeHTTPSURL(raw string) error {
 }
 
 // spokeAPIEndpoint resolves the managed cluster API server URL and optional CA bundle.
+// Used only when MTV_CCLM_CLUSTER_PROXY_MODE=direct (kind/e2e).
 func spokeAPIEndpoint(
 	ctx context.Context,
 	hub kubernetes.Interface,
@@ -155,36 +144,77 @@ func spokeAPIEndpoint(
 	return apiURL, ca, nil
 }
 
-// NewSpokeClientForCaller builds a spoke client using the caller's bearer token (not the MTV provider secret token).
-func NewSpokeClientForCaller(
+func mtvProviderToken(ctx context.Context, hub kubernetes.Interface, clusterName string) (string, error) {
+	secret, err := hub.CoreV1().Secrets(controllers.MTVIntegrationsNamespace).
+		Get(ctx, clusterName+"-mtv", metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", fmt.Errorf("cluster %q: MTV provider secret %q not found", clusterName, clusterName+"-mtv")
+		}
+		return "", fmt.Errorf("cluster %q provider secret: %w", clusterName, err)
+	}
+	token := strings.TrimSpace(string(secret.Data["token"]))
+	if token == "" {
+		return "", fmt.Errorf("cluster %q: MTV provider secret has no token", clusterName)
+	}
+	return token, nil
+}
+
+// NewSpokeClient builds a spoke client using the MTV ManagedServiceAccount token from
+// mtv-integrations/<cluster>-mtv. Hub authorization uses the API caller's bearer token;
+// spoke ConfigMap I/O uses the provider token through cluster-proxy (or direct mode in e2e).
+func NewSpokeClient(
 	ctx context.Context,
+	hubConfig *rest.Config,
 	hub kubernetes.Interface,
 	dynamicClient dynamic.Interface,
 	clusterName string,
-	callerBearer string,
+	serviceCAPath string,
 ) (SpokeConfigMapClient, error) {
-	if strings.TrimSpace(callerBearer) == "" {
-		return nil, fmt.Errorf("caller bearer token required for spoke access")
-	}
-	apiURL, ca, err := spokeAPIEndpoint(ctx, hub, dynamicClient, clusterName)
+	providerToken, err := mtvProviderToken(ctx, hub, clusterName)
 	if err != nil {
 		return nil, err
 	}
-
-	cfg := &rest.Config{
-		Host:        apiURL,
-		BearerToken: callerBearer,
+	var cfg *rest.Config
+	switch clusterProxyMode() {
+	case clusterProxyModeDirect:
+		cfg, err = restConfigDirectSpoke(ctx, hub, dynamicClient, clusterName, providerToken)
+	default:
+		cfg, err = restConfigForClusterProxy(hubConfig, clusterName, providerToken, serviceCAPath)
 	}
-	if len(ca) > 0 {
-		cfg.TLSClientConfig = rest.TLSClientConfig{CAData: ca}
-	} else {
-		cfg.TLSClientConfig = rest.TLSClientConfig{Insecure: false}
+	if err != nil {
+		return nil, err
 	}
 	cs, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("build spoke client for %q: %w", clusterName, err)
 	}
 	return &spokeClient{clientset: cs}, nil
+}
+
+func restConfigDirectSpoke(
+	ctx context.Context,
+	hub kubernetes.Interface,
+	dynamicClient dynamic.Interface,
+	clusterName, providerToken string,
+) (*rest.Config, error) {
+	if strings.TrimSpace(providerToken) == "" {
+		return nil, fmt.Errorf("provider token required for spoke access")
+	}
+	apiURL, ca, err := spokeAPIEndpoint(ctx, hub, dynamicClient, clusterName)
+	if err != nil {
+		return nil, err
+	}
+	cfg := &rest.Config{
+		Host:        apiURL,
+		BearerToken: providerToken,
+	}
+	if len(ca) > 0 {
+		cfg.TLSClientConfig = rest.TLSClientConfig{CAData: ca}
+	} else {
+		cfg.TLSClientConfig = rest.TLSClientConfig{Insecure: false}
+	}
+	return cfg, nil
 }
 
 func (s *spokeClient) GetConfigMap(ctx context.Context, namespace, name string) (*corev1.ConfigMap, error) {

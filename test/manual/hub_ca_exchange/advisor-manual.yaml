@@ -1,0 +1,101 @@
+# Manual CA exchange test: runs ACM-50186 manager with advisor :8082 only (no webhook).
+# Use when the shipped operand image does not expose the advisor API.
+#
+# Hub prerequisites (apply once per cluster):
+#   - config/rbac/proxy_cclm_ca_exchange/role.yaml + role_binding.yaml (lease probe in mtv-integrations)
+#   - ClusterRole mtv-advisor-manual-plan-reader (forklift Plan list/watch for cache sync)
+#   - ServiceAccount mtv-advisor-manual + cluster-admin binding (or full manager RBAC; weak SA hangs on cache sync)
+#   - fine-grained-rbac MCH component + users-matrix-a.yaml (htpasswd Users, not ServiceAccounts)
+#   - Scale stock mtv-integrations-controller to 0 while this deployment runs (optional, avoids duplicate reconcilers)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mtv-advisor-manual
+  namespace: open-cluster-management
+  labels:
+    app: mtv-advisor-manual
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mtv-advisor-manual
+  template:
+    metadata:
+      labels:
+        app: mtv-advisor-manual
+    spec:
+      serviceAccountName: mtv-advisor-manual
+      containers:
+        - name: manager
+          image: image-registry.openshift-image-registry.svc:5000/open-cluster-management/mtv-integrations-acm-50186:latest
+          imagePullPolicy: Always
+          command: ["/manager"]
+          args:
+            - --enable-webhook=false
+            - --leader-elect=false
+            - --health-probe-bind-address=:8081
+            - --service-ca-path=/var/run/secrets/service-ca/service-ca.crt
+            - --advisor-addr=:8082
+          ports:
+            - name: advisor-http
+              containerPort: 8082
+            - name: probe
+              containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          volumeMounts:
+            - mountPath: /var/run/secrets/service-ca
+              name: service-ca
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            runAsNonRoot: true
+      volumes:
+        - name: service-ca
+          configMap:
+            name: mtv-integrations-service-ca
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mtv-advisor-manual
+  namespace: open-cluster-management
+---
+# Manual test only: manager needs broad watch RBAC until a dedicated advisor-only binary exists.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mtv-advisor-manual-cluster-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: mtv-advisor-manual
+    namespace: open-cluster-management
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mtv-advisor-manual
+  namespace: open-cluster-management
+spec:
+  selector:
+    app: mtv-advisor-manual
+  ports:
+    - name: advisor-http
+      port: 8082
+      targetPort: advisor-http

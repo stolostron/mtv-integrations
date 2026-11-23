@@ -101,7 +101,7 @@ Hub **TLSSecurityProfile** (min TLS version, ciphers, TLS groups) applies to the
 
 **Implementation:** `controllers/cclmca/` (`handler.go`, `exchange.go`, `clusters.go`, `spoke.go`, `lock.go`, `certs.go`). Full API contract: [CCLM CA exchange API](CCLM_CA_EXCHANGE_API.md).
 
-**Authorization:** Bearer token; hub preflight requires **`acm-vm-fleet:admin`** (`local-cluster`, `namespaces: *`) and **`kubevirt.io:admin`** on both request clusters via **`UserPermission`** (`CheckCallerAuthorizedForClusters`). **proxy-cclm** **ConfigurationPolicy** merges CA ConfigMap rules into the CNV **`kubevirt.io:admin`** ClusterRole; spoke API denies stale RBAC via the managed-cluster proxy.
+**Authorization:** Bearer token; **required:** **`kubevirt.io:admin`** **`UserPermission`** on both request clusters (MRA) and hub RBAC to **`get`** `userpermissions` (2.17 workaround or 5.1+ fleet roles). Fleet MRA is optional. Hub preflight **`CheckCallerAuthorizedForClusters`** enforces kubevirt only. Spoke ConfigMap access uses the MTV **`mtv-integrations/<cluster>-mtv`** ManagedServiceAccount token through **cluster-proxy**, not the caller’s hub token.
 
 ## Addons (YAML-only)
 
@@ -168,7 +168,7 @@ POST /api/v1/proxy-cclm/ca-exchange  (Bearer token)
   → Authorize caller for clusterA and clusterB
   → GET ManagedCluster clusterA, clusterB on hub
   → Require label acm/proxy-cclm=true on each
-  → Spoke clients: caller Bearer token; API URL/CA from ManagedCluster and/or mtv-integrations/<cluster>-mtv (not the Secret token)
+  → Spoke clients: MTV provider token via hub cluster-proxy user-server ({base}/{cluster}/api/...)
   → Read kubevirt-ca; optional clearKubevirtCA (POST body) then CNV refresh on spokes that need writes
   → Merge trust via kubevirt-external-ca; hub Leases serialize concurrent exchanges per cluster
   → Return per-cluster verification status (or 400/409/502/504)

@@ -19,7 +19,6 @@ package cclmca
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -41,26 +40,29 @@ type Handler struct {
 	DynamicClient dynamic.Interface
 	RestConfig    *rest.Config
 	HubClient     kubernetes.Interface
+	ServiceCAPath string
 	Exchanger     *Exchanger
 }
 
 // NewHandler builds a Handler with a default spoke client factory.
-func NewHandler(dyn dynamic.Interface, cfg *rest.Config, hub kubernetes.Interface) *Handler {
+func NewHandler(
+	dyn dynamic.Interface,
+	cfg *rest.Config,
+	hub kubernetes.Interface,
+	serviceCAPath string,
+) *Handler {
 	ex := &Exchanger{
 		HubClient:  hub,
 		HubDynamic: dyn,
 		Factory: func(ctx context.Context, cluster string) (SpokeConfigMapClient, error) {
-			bearer, ok := callerBearerFromContext(ctx)
-			if !ok {
-				return nil, fmt.Errorf("caller bearer token missing from request context")
-			}
-			return NewSpokeClientForCaller(ctx, hub, dyn, cluster, bearer)
+			return NewSpokeClient(ctx, cfg, hub, dyn, cluster, serviceCAPath)
 		},
 	}
 	return &Handler{
 		DynamicClient: dyn,
 		RestConfig:    cfg,
 		HubClient:     hub,
+		ServiceCAPath: serviceCAPath,
 		Exchanger:     ex,
 	}
 }
@@ -95,7 +97,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := ctrl.LoggerInto(WithCallerBearerToken(r.Context(), parts[1]), log)
+	ctx := ctrl.LoggerInto(r.Context(), log)
 
 	if resp, status := validateExchangeClusterFields(req); resp != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -119,8 +121,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if !allowed {
 		writeCAExchangeError(w, http.StatusForbidden, errCodeForbidden,
-			"forbidden: requires hub acm-vm-fleet:admin (local-cluster with namespaces *) and "+
-				"kubevirt.io:admin on both clusters")
+			"forbidden: requires kubevirt.io:admin UserPermission on both clusters")
 		return
 	}
 

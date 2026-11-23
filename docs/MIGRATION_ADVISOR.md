@@ -100,7 +100,7 @@ Readiness for proxy CCLM CA exchange: hub `mtv-integrations` namespace and lease
 
 Proxy CCLM **KubeVirt CA exchange** (separate handler in `controllers/cclmca/`). Same listener, port, and Bearer authorization model as migration targets.
 
-**Caller RBAC:** hub **`UserPermission`** **`acm-vm-fleet:admin`** + **`kubevirt.io:admin`** (bindings for both request clusters); MRA + proxy-cclm **ConfigurationPolicy** on spokes — see [CCLM CA exchange — Authorization](CCLM_CA_EXCHANGE_API.md#authorization).
+**Caller RBAC (CA exchange):** **`kubevirt.io:admin`** on both request clusters (MRA) plus hub **`get`** on `userpermissions`; fleet MRA is not enforced — see [CCLM CA exchange — Authorization](CCLM_CA_EXCHANGE_API.md#authorization).
 
 **Preflight:** both `clusterA` and `clusterB` must be hub `ManagedCluster` objects labeled **`acm/proxy-cclm=true`**. If either is not, **HTTP 400** / **`PROXY_CCLM_NOT_ENABLED`** (see [missing label examples](CCLM_CA_EXCHANGE_API.md#missing-acmproxy-cclm-label)).
 

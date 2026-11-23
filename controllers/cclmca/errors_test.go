@@ -27,7 +27,8 @@ func TestClusterAccessErrorSpokeRBACForbidden(t *testing.T) {
 	assert.Contains(t, resp.Message, "kubevirt.io:admin")
 	assert.Contains(t, resp.Message, "cnv-1")
 	assert.Contains(t, resp.Message, "cnv-2")
-	assert.Contains(t, resp.Message, "acm/proxy-cclm=true")
+	assert.Contains(t, resp.Message, "cnv-1-mtv")
+	assert.Contains(t, resp.Message, "mtv-integrations")
 }
 
 func TestClusterAccessErrorOtherUsesUnreachable(t *testing.T) {

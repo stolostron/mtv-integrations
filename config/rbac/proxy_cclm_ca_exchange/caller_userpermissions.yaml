@@ -1,0 +1,22 @@
+# Workaround for ACM 2.17 (and earlier): shipped acm-vm-fleet:view and acm-vm-fleet:admin
+# grant list but not get/watch on clusterview UserPermission. CA exchange and the Plan
+# webhook call GET userpermissions/<name> as the caller. ACM 5.1+ fleet VM roles include
+# get/watch on userpermissions — omit this binding when fleet roles already allow GET.
+#
+# Bind exchange callers (User/Group) with ClusterRoleBinding; do not bind the controller SA.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: mtv-integrations
+    app.kubernetes.io/component: proxy-cclm-ca-exchange
+  name: mtv-integrations:proxy-cclm-ca-exchange-userpermissions
+rules:
+  - apiGroups:
+      - clusterview.open-cluster-management.io
+    resources:
+      - userpermissions
+    verbs:
+      - get
+      - list
+      - watch

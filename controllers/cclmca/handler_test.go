@@ -32,18 +32,13 @@ import (
 )
 
 func TestNewHandler(t *testing.T) {
-	h := NewHandler(nil, &rest.Config{Host: "http://unused"}, fake.NewSimpleClientset())
+	h := NewHandler(nil, &rest.Config{Host: "http://unused"}, fake.NewSimpleClientset(), "")
 	require.NotNil(t, h.Exchanger)
 	require.NotNil(t, h.Exchanger.Factory)
 }
 
 func TestHandler_InvalidJSON(t *testing.T) {
-	up := fakeUserPermissionServer(map[string][]string{
-		"acm-vm-fleet:admin": {"local-cluster"},
-	})
-	defer up.Close()
-
-	h := NewHandler(nil, &rest.Config{Host: up.URL}, fake.NewSimpleClientset())
+	h := NewHandler(nil, &rest.Config{Host: "http://unused"}, fake.NewSimpleClientset(), "")
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{"))
 	req.Header.Set("Authorization", "Bearer test")
 	w := httptest.NewRecorder()
@@ -121,7 +116,7 @@ func TestHandler_MissingClustersBadRequest(t *testing.T) {
 	up := fakeUserPermissionServer(nil)
 	defer up.Close()
 
-	h := NewHandler(nil, &rest.Config{Host: up.URL}, nil)
+	h := NewHandler(nil, &rest.Config{Host: up.URL}, nil, "")
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
 	req.Header.Set("Authorization", "Bearer test")
 	w := httptest.NewRecorder()
@@ -138,7 +133,7 @@ func TestHandler_ForbiddenJSON(t *testing.T) {
 	up := fakeUserPermissionServer(nil)
 	defer up.Close()
 
-	h := NewHandler(nil, &rest.Config{Host: up.URL}, nil)
+	h := NewHandler(nil, &rest.Config{Host: up.URL}, nil, "")
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"clusterA":"a","clusterB":"b"}`))
 	req.Header.Set("Authorization", "Bearer test")
 	w := httptest.NewRecorder()
@@ -152,8 +147,7 @@ func TestHandler_ForbiddenJSON(t *testing.T) {
 
 func TestHandler_ExchangeSuccessWithPerClusterNamespaces(t *testing.T) {
 	up := fakeUserPermissionServer(map[string][]string{
-		"acm-vm-fleet:admin": {"local-cluster"},
-		"kubevirt.io:admin":  {"cluster-a", "cluster-b"},
+		"kubevirt.io:admin": {"cluster-a", "cluster-b"},
 	})
 	defer up.Close()
 
@@ -161,7 +155,7 @@ func TestHandler_ExchangeSuccessWithPerClusterNamespaces(t *testing.T) {
 	a := newFakeSpoke(map[string]map[string]string{"openshift-cnv": {kubevirtCAConfigMapName: ca}})
 	b := newFakeSpoke(map[string]map[string]string{"openshift-cnv": {kubevirtCAConfigMapName: ca}})
 
-	h := NewHandler(hubDynamicLabeled("cluster-a", "cluster-b"), &rest.Config{Host: up.URL}, fake.NewSimpleClientset())
+	h := NewHandler(hubDynamicLabeled("cluster-a", "cluster-b"), &rest.Config{Host: up.URL}, fake.NewSimpleClientset(), "")
 	h.SetSpokeFactory(func(ctx context.Context, cluster string) (SpokeConfigMapClient, error) {
 		switch cluster {
 		case "cluster-a":

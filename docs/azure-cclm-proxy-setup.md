@@ -271,9 +271,9 @@ Each cluster has its own KubeVirt CA in ConfigMap **`kubevirt-ca`**. Cross-clust
 
 ### ACM API (hub, both clusters labeled)
 
-When **MTV integrations** is deployed on the hub and both spokes are MTV-onboarded (`acm/cnv-operator-install=true` so hub Secrets **`mtv-integrations/<cluster>-mtv`** exist) **and** labeled **`acm/proxy-cclm=true`**, you can run bidirectional exchange through the advisor HTTP API instead of manual `oc patch` on each spoke. This does **not** depend on Forklift **Provider** CRs—only on spoke API credentials and KubeVirt ConfigMaps.
+When **MTV integrations** is deployed on the hub, **cluster-proxy** is available on the hub, and both spokes are labeled **`acm/proxy-cclm=true`**, you can run bidirectional exchange through the advisor HTTP API instead of manual `oc patch` on each spoke. The API authorizes the caller on the hub; spoke ConfigMap work uses the MTV **`mtv-integrations/<cluster>-mtv`** ManagedServiceAccount token through **cluster-proxy**.
 
-The API caller needs hub **`UserPermission`** **`acm-vm-fleet:admin`** on **`local-cluster`** with `namespaces: *`. **You must also create hub `MulticlusterRoleAssignment`** so the same subject gets **`kubevirt.io:admin`** in **`openshift-cnv`** on **both** `ManagedCluster` names (Placement selecting those clusters). Spokes must be **`acm/proxy-cclm=true`** so the addon **ConfigurationPolicy** merges **kubevirt-ca** / **kubevirt-external-ca** rules into the **`kubevirt.io:admin`** ClusterRole installed by CNV. See [`CCLM_CA_EXCHANGE_API.md` — MRA on managed clusters](CCLM_CA_EXCHANGE_API.md#multiclusterroleassignment-on-managed-clusters).
+The API caller needs **`kubevirt.io:admin`** in **`openshift-cnv`** on **both** `ManagedCluster` names (spoke MRA) and hub RBAC to **`get`** `userpermissions/kubevirt.io:admin`. Fleet MRA on **`local-cluster`** is optional. Spokes must be **`acm/proxy-cclm=true`**. See [`CCLM_CA_EXCHANGE_API.md` — Authorization](CCLM_CA_EXCHANGE_API.md#authorization).
 
 ```bash
 # Label prerequisite (if not already done by proxy-cclm addon placement)
@@ -281,8 +281,7 @@ oc label managedcluster <cluster-a> acm/proxy-cclm=true --overwrite
 oc label managedcluster <cluster-b> acm/proxy-cclm=true --overwrite
 
 ADVISOR="https://<mtv-advisor-route-host>"   # or in-cluster Service :8082
-# Caller must hold ACM fleet RBAC (UserPermission acm-vm-fleet:admin on local-cluster,
-# and MRA kubevirt.io:admin on openshift-cnv for both clusters) — see docs/CCLM_CA_EXCHANGE_API.md
+# Caller needs kubevirt.io:admin on both spokes and get on userpermissions — see docs/CCLM_CA_EXCHANGE_API.md
 curl -sS -X POST "${ADVISOR}/api/v1/proxy-cclm/ca-exchange" \
   -H "Authorization: Bearer $(oc whoami -t)" \
   -H "Content-Type: application/json" \

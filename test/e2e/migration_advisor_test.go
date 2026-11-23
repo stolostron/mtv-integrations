@@ -24,11 +24,11 @@ import (
 
 var _ = Describe("Migration advisor API", Label("migration_advisor"), Ordered, func() {
 	const (
-		path                 = "../resources/migration_advisor"
-		managedclusterPath   = path + "/managedcluster.yaml"
-		targetClusterPath    = path + "/target_managedcluster.yaml"
-		untargetClusterPath  = path + "/untarget_managecluster.yaml"
-		userpermissionPath   = path + "/userpermission.yaml"
+		path                = "../resources/migration_advisor"
+		managedclusterPath  = path + "/managedcluster.yaml"
+		targetClusterPath   = path + "/target_managedcluster.yaml"
+		untargetClusterPath = path + "/untarget_managecluster.yaml"
+		userpermissionPath  = path + "/userpermission.yaml"
 
 		sourceCluster = "advisor-cluster"
 		vmNamespace   = "default"

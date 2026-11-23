@@ -47,9 +47,9 @@ import (
 
 var _ = Describe("Proxy CCLM CA exchange API", Label("cclm_ca_exchange"), Ordered, func() {
 	const (
-		path               = "../resources/cclm_ca_exchange"
-		managedClusters    = path + "/managedclusters.yaml"
-		userpermissionPath        = "../resources/migration_advisor/userpermission.yaml"
+		path                       = "../resources/cclm_ca_exchange"
+		managedClusters            = path + "/managedclusters.yaml"
+		userpermissionPath         = "../resources/migration_advisor/userpermission.yaml"
 		userpermissionKubeVirtPath = "../resources/migration_advisor/userpermission-kubevirt.yaml"
 
 		exchangePath   = "/api/v1/proxy-cclm/ca-exchange"
@@ -59,24 +59,24 @@ var _ = Describe("Proxy CCLM CA exchange API", Label("cclm_ca_exchange"), Ordere
 		kubevirtCAName = "kubevirt-ca"
 		caBundleKey    = "ca-bundle"
 
-		clusterA = "ca-spoke-a"
-		clusterB = "ca-spoke-b"
-		kubevirtNsB          = "openshift-cnv-ca-b"
-		externalCAName       = "kubevirt-external-ca"
+		clusterA       = "ca-spoke-a"
+		clusterB       = "ca-spoke-b"
+		kubevirtNsB    = "openshift-cnv-ca-b"
+		externalCAName = "kubevirt-external-ca"
 
 		caExchangeSAName      = "ca-exchange-e2e-sa"
 		caExchangeSANamespace = "default"
 	)
 
 	var (
-		authClient               *http.Client
-		bareHTTPClient           *http.Client
-		spokeToken               string
-		createdNamespaces        []string
-		kubevirtCAPrior          *corev1.ConfigMap
-		kubevirtCACreated        bool
-		caExchangeSACreated      bool
-		caExchangeCRBCreated     bool
+		authClient           *http.Client
+		bareHTTPClient       *http.Client
+		spokeToken           string
+		createdNamespaces    []string
+		kubevirtCAPrior      *corev1.ConfigMap
+		kubevirtCACreated    bool
+		caExchangeSACreated  bool
+		caExchangeCRBCreated bool
 	)
 
 	expectNoErr := func(err error, msg string) {
