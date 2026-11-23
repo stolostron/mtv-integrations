@@ -60,7 +60,7 @@ Run `clearKubevirtCA: true` as a **separate** POST (user2 only).
 ## Hub validation results (manual)
 
 **Hub:** `full-size-azure-ocp5-m6n8w` (ACM dev) · **Spokes:** `cnv-1`, `cnv-2`  
-**Advisor:** `mtv-advisor-manual` · **Image:** `mtv-integrations-acm-50186:latest` (build **6**, Nov 2026)  
+**Advisor:** `mtv-advisor-manual` · **Image:** `mtv-integrations-acm-50186:latest` (build **7**, `sha256:c5f077f3…`, Nov 2026)  
 **Transport:** MTV `mtv-integrations/<cluster>-mtv` token via cluster-proxy user-server; hub auth = caller `kubevirt.io:admin` `UserPermission`.
 
 ### Auth matrix (`POST`, `clearKubevirtCA: false`)
@@ -81,6 +81,22 @@ Run `clearKubevirtCA: true` as a **separate** POST (user2 only).
 | **ca-exchange-u4** | **yes** | **denied** (CRB removed) | **403** | Has kubevirt MRA but cannot `GET`; `can-i get userpermissions` → no |
 
 `GET /api/v1/proxy-cclm/health` → **200** `ok` (unauthenticated).
+
+### Re-run after lease renewal + verify fixes (build 7)
+
+Recorded **2026-11-23** after `mtv-integrations-acm-50186-7` rebuild + `mtv-advisor-manual` rollout (`clearKubevirtCA: false` only):
+
+| Caller | HTTP | Notes |
+|--------|------|-------|
+| (no Bearer) | **401** | `UNAUTHORIZED` |
+| **ca-exchange-u2** | **200** | `caVerified` true both spokes; near-limit warnings (51–52 certs) |
+| **ca-exchange-u3** | **403** | fleet only |
+| **ca-exchange-u4** | **200** | kubevirt only (no fleet UP) |
+| **ca-exchange-u3** (CRB removed) | **403** | same kubevirt message (still lacks kubevirt UP) |
+| **ca-exchange-u4** (CRB removed) | **403** | `can-i get userpermissions` → **no** |
+| **ca-exchange-u2** (`clearKubevirtCA: true`) | **200** | counts **2**/**2**, no near-limit warnings |
+
+`GET /api/v1/proxy-cclm/health` → **200** `ok`.
 
 ### Functional (ca-exchange-u2, build 6)
 
