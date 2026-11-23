@@ -167,7 +167,7 @@ Migration advisor e2e tests are in:
 - Fake Search server:
   - `test/utils/fake-search-server/main.go`
 
-`run-advisor-test` starts both fake servers and passes endpoint overrides into the instrumented manager.
+`run-advisor-test` starts both fake servers and passes endpoint overrides into the instrumented manager. For CA exchange specs it also sets **`MTV_CCLM_CLUSTER_PROXY_MODE=direct`** so spoke ConfigMap calls hit the kind apiserver (same as the patched controller deployment in webhook e2e).
 
 ### ManagedClusterView CRD
 

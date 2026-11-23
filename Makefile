@@ -383,6 +383,7 @@ run-advisor-test: e2e-dependencies ## Run migration advisor API e2e tests (requi
 	$(MAKE) start-fake-thanos; \
 	export MTV_ADVISOR_ROLE_VM_FLEET_ADMIN=acm-vm-fleet-admin; \
 	export MTV_ADVISOR_ROLE_KUBEVIRT_ADMIN=kubevirt-admin; \
+	export MTV_CCLM_CLUSTER_PROXY_MODE=direct; \
 	$(MAKE) run-instrument THANOS_HOST=$(FAKE_THANOS_HOST) SEARCH_API_ENDPOINT=$(FAKE_SEARCH_HOST)/searchapi/graphql; \
 	$(GINKGO) -v --fail-fast --label-filter="migration_advisor || cclm_ca_exchange" --json-report=report_advisor.json -timeout 120s test/e2e; \
 	go tool covdata textfmt -i=coverage_profiles -o=coverage_e2e.out || true
