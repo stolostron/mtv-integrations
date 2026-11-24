@@ -1,0 +1,8 @@
+# Hub namespace for MTV provider secrets and proxy-cclm CA exchange leases.
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/name: mtv-integrations
+    app.kubernetes.io/managed-by: kustomize
+  name: mtv-integrations

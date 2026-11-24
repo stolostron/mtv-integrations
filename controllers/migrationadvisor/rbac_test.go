@@ -73,6 +73,56 @@ func newFakeUserPermissionServer(
 	}))
 }
 
+// userPermissionBindingFixture is one status.bindings entry for fake UserPermission servers.
+type userPermissionBindingFixture struct {
+	Cluster    string
+	Namespaces []string
+}
+
+func newFakeUserPermissionServerBindings(
+	t *testing.T,
+	expectedToken string,
+	roleBindings map[string][]userPermissionBindingFixture,
+) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		const prefix = "/apis/clusterview.open-cluster-management.io/v1alpha1/userpermissions/"
+		if r.Method != http.MethodGet || len(r.URL.Path) <= len(prefix) {
+			http.Error(w, "unexpected: "+r.Method+" "+r.URL.Path, http.StatusNotFound)
+			return
+		}
+		if expectedToken != "" {
+			got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if got != expectedToken {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		roleName := r.URL.Path[len(prefix):]
+		bindings := make([]interface{}, 0)
+		for _, b := range roleBindings[roleName] {
+			ns := make([]interface{}, len(b.Namespaces))
+			for i, n := range b.Namespaces {
+				ns[i] = n
+			}
+			bindings = append(bindings, map[string]interface{}{
+				"cluster":    b.Cluster,
+				"namespaces": ns,
+			})
+		}
+		resp := map[string]interface{}{
+			"apiVersion": "clusterview.open-cluster-management.io/v1alpha1",
+			"kind":       "UserPermission",
+			"metadata":   map[string]interface{}{"name": roleName},
+			"status":     map[string]interface{}{"bindings": bindings},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("fake UP server: encode: %v", err)
+		}
+	}))
+}
+
 // newFakeAuthHandlerWithMCV builds a Handler pointing at the given fake
 // UserPermission server. The handler uses fakeClient as its controller
 // DynamicClient and the fake servers for Thanos/Search.
@@ -299,6 +349,38 @@ func TestUserPermissionCoversHub_NoLocalClusterBinding(t *testing.T) {
 	ok, err := userPermissionCoversHub(context.Background(), dynClient)
 	require.NoError(t, err)
 	assert.False(t, ok, "spoke-only binding should not grant advisor access")
+}
+
+func TestUserPermissionCoversHub_LocalClusterScopedNamespacesStillAllowed(t *testing.T) {
+	upSrv := newFakeUserPermissionServerBindings(t, "", map[string][]userPermissionBindingFixture{
+		advisorRoleVMFleetAdmin(): {{
+			Cluster: hubClusterName, Namespaces: []string{"openshift-cnv"},
+		}},
+	})
+	defer upSrv.Close()
+
+	dynClient, err := dynamic.NewForConfig(&rest.Config{Host: upSrv.URL})
+	require.NoError(t, err)
+
+	ok, err := userPermissionCoversHub(context.Background(), dynClient)
+	require.NoError(t, err)
+	assert.True(t, ok, "migration advisor keeps looser hub fleet check")
+}
+
+func TestUserPermissionCoversHubWildcard_RequiresStar(t *testing.T) {
+	upSrv := newFakeUserPermissionServerBindings(t, "", map[string][]userPermissionBindingFixture{
+		advisorRoleVMFleetAdmin(): {{
+			Cluster: hubClusterName, Namespaces: []string{"openshift-cnv"},
+		}},
+	})
+	defer upSrv.Close()
+
+	dynClient, err := dynamic.NewForConfig(&rest.Config{Host: upSrv.URL})
+	require.NoError(t, err)
+
+	ok, err := userPermissionCoversHubWildcard(context.Background(), dynClient)
+	require.NoError(t, err)
+	assert.False(t, ok)
 }
 
 func TestUserPermissionCoversHub_Forbidden(t *testing.T) {

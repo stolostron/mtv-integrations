@@ -1,0 +1,18 @@
+# Hub leases for proxy-cclm CA exchange (proxy-cclm-ca-exchange-<cluster> in mtv-integrations).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/name: mtv-integrations
+    app.kubernetes.io/managed-by: kustomize
+  name: proxy-cclm-ca-exchange-leases
+  namespace: mtv-integrations
+rules:
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - create
+  - update

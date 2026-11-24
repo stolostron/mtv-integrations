@@ -153,13 +153,16 @@ func TestProxyCCLMKubeVirtConfigurationPolicy(t *testing.T) {
 	}
 	templates := nestedSlice(t, policySpec, "object-templates")
 	if len(templates) != 1 {
-		t.Fatalf("expected one object-template, got %d", len(templates))
+		t.Fatalf("expected one object-template (KubeVirt only), got %d", len(templates))
 	}
-	tpl := templates[0].(map[string]interface{})
-	if tpl["complianceType"] != "musthave" {
-		t.Fatalf("unexpected complianceType: %v", tpl["complianceType"])
+	kubevirtTpl := templates[0].(map[string]interface{})
+	if kubevirtTpl["complianceType"] != "musthave" {
+		t.Fatalf("unexpected complianceType: %v", kubevirtTpl["complianceType"])
 	}
-	def := nestedMap(t, tpl, "objectDefinition")
+	def := nestedMap(t, kubevirtTpl, "objectDefinition")
+	if def["kind"] != "KubeVirt" {
+		t.Fatalf("object-template should be KubeVirt, got %v", def["kind"])
+	}
 	gates := nestedSlice(t, def, "spec", "configuration", "developerConfiguration", "featureGates")
 	wantGates := []interface{}{"CrossClusterMigrationProxy"}
 	if !reflect.DeepEqual(gates, wantGates) {

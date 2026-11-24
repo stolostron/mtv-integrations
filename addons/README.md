@@ -71,6 +71,8 @@ The AddOnTemplate includes Role `proxy-cclm-policy-manager` and bindings for `kl
 
 See `docs/azure-cclm-proxy-setup.md` for manual steps this addon automates.
 
+After both spokes carry **`acm/proxy-cclm=true`** and hub **cluster-proxy** is enabled, operators can exchange **`kubevirt-ca`** trust via **`POST /api/v1/proxy-cclm/ca-exchange`** (migration advisor port **8082**). **Required:** spoke **`kubevirt.io:admin`** via **MulticlusterRoleAssignment** with **Placement** on **both** exchange **`ManagedCluster`** names and **`targetNamespaces: [openshift-cnv]`** — the API enforces **`kubevirt.io:admin`** **`UserPermission`** on the hub (`GET userpermissions/kubevirt.io:admin` as the caller). Spoke ConfigMap I/O uses MTV **`mtv-integrations/<cluster>-mtv`** (ManagedServiceAccount) tokens through cluster-proxy, not the caller’s hub token. **Not required:** **`acm-vm-fleet:view`** or **`acm-vm-fleet:admin`** (kubevirt-only callers can succeed; hub manual tests use **`acm-vm-fleet:admin`** on **`local-cluster`** for fleet UX). On ACM 2.17, callers also need hub RBAC to **`get`** `userpermissions` (see `config/rbac/proxy_cclm_ca_exchange/caller_userpermissions.yaml`). Details: [`docs/CCLM_CA_EXCHANGE_API.md`](../docs/CCLM_CA_EXCHANGE_API.md).
+
 ## Installation
 
 To install the addons on your ACM hub cluster, use the following commands:

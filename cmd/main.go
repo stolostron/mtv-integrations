@@ -29,6 +29,7 @@ import (
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	"github.com/stolostron/mtv-integrations/controllers"
+	"github.com/stolostron/mtv-integrations/controllers/cclmca"
 	"github.com/stolostron/mtv-integrations/controllers/migrationadvisor"
 	plancontroller "github.com/stolostron/mtv-integrations/controllers/plan"
 	miwebhook "github.com/stolostron/mtv-integrations/webhook"
@@ -44,6 +45,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
@@ -279,8 +281,17 @@ func setupAdvisorServer(
 			return discoverSearchAPIEndpoint(discoverCtx, dynamicClient)
 		}
 	}
+	hubKube, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("kubernetes client for advisor server: %w", err)
+	}
+	cclmCAHandler := cclmca.NewHandler(dynamicClient, restConfig, hubKube, serviceCAPath)
+	cclmCAHealth := cclmca.NewHealthHandler(hubKube)
+
 	advisorMux := http.NewServeMux()
 	advisorMux.Handle("/api/v1/migration-targets", advisorHandler)
+	advisorMux.Handle("/api/v1/proxy-cclm/ca-exchange", cclmCAHandler)
+	advisorMux.Handle(cclmca.HealthPath, cclmCAHealth)
 	advisorMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -306,7 +317,7 @@ func setupAdvisorServer(
 		Handler:           advisorMux,
 		ReadTimeout:       30 * time.Second,
 		ReadHeaderTimeout: 10 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      cclmca.AdvisorHTTPWriteTimeout,
 		IdleTimeout:       60 * time.Second,
 	}
 	return mgr.Add(runnableFunc(func(ctx context.Context) error {

@@ -23,11 +23,11 @@ import (
 )
 
 const (
-	labelCreatedBy      = "app.kubernetes.io/created-by"
-	labelCCLMValue      = "cclm"
-	forkliftAPIGroup    = "forklift.konveyor.io"
-	forkliftAPIVersion  = "v1beta1"
-	planKind            = "Plan"
+	labelCreatedBy     = "app.kubernetes.io/created-by"
+	labelCCLMValue     = "cclm"
+	forkliftAPIGroup   = "forklift.konveyor.io"
+	forkliftAPIVersion = "v1beta1"
+	planKind           = "Plan"
 )
 
 var (

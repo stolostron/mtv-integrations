@@ -1,0 +1,17 @@
+# Leases for proxy-cclm CA exchange live in mtv-integrations (not cluster-wide).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/name: mtv-integrations
+  name: proxy-cclm-ca-exchange-leases
+  namespace: mtv-integrations
+rules:
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - create
+  - update
